@@ -35,6 +35,15 @@ macOS is a future validation target; it is not currently covered by CI.
 
 ## Run with external game data
 
+Game-data source: [Abuse downloads](http://abuse.zoy.org/wiki/download).
+Download and extract the game data separately from this engine. Point `-datadir`
+at the extracted directory containing `abuse.lsp`, or copy that directory's contents
+into this repository's ignored `data/` folder:
+
+```sh
+./build/abuse -datadir ./data
+```
+
 From this folder, using the original distribution next to it:
 
 ```sh
