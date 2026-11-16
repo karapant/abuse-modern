@@ -1,0 +1,40 @@
+include(FetchContent)
+find_package(SDL3 3.4 CONFIG QUIET)
+if(NOT SDL3_FOUND)
+    if(NOT ABUSE_FETCH_DEPS)
+        message(FATAL_ERROR "SDL3 >= 3.4 required. Install its development package or enable ABUSE_FETCH_DEPS.")
+    endif()
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(SDL3
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+        GIT_TAG a962f40bbba175e9716557a25d5d7965f134a3d3 # release-3.4.0
+        GIT_SUBMODULES "")
+    FetchContent_MakeAvailable(SDL3)
+endif()
+find_package(SDL3_mixer 3.2 CONFIG QUIET)
+if(NOT SDL3_mixer_FOUND)
+    if(NOT ABUSE_FETCH_DEPS)
+        message(FATAL_ERROR "SDL3_mixer >= 3.2 required. Install its development package or enable ABUSE_FETCH_DEPS.")
+    endif()
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(SDLMIXER_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDLMIXER_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDLMIXER_INSTALL OFF CACHE BOOL "" FORCE)
+    set(SDLMIXER_VENDORED OFF CACHE BOOL "" FORCE)
+    # Abuse needs WAV effects and HMI-converted MIDI. Avoid unrelated codec dependencies.
+    foreach(codec AIFF VOC AU FLAC GME MOD MP3 OPUS VORBIS_STB VORBIS_VORBISFILE WAVPACK)
+        set(SDLMIXER_${codec} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    set(SDLMIXER_MIDI ON CACHE BOOL "" FORCE)
+    set(SDLMIXER_MIDI_TIMIDITY ON CACHE BOOL "" FORCE)
+    set(SDLMIXER_MIDI_FLUIDSYNTH OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(SDL3_mixer
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL_mixer.git
+        GIT_TAG cedfeef30e93db35eee6b25759117da63f8e5a4f # release-3.2.0
+        GIT_SUBMODULES "")
+    FetchContent_MakeAvailable(SDL3_mixer)
+endif()

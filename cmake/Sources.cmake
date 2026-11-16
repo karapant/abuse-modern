@@ -1,0 +1,108 @@
+# Explicit source lists from Abuse 0.8; no generated Autotools files.
+set(ABUSE_GAME_SOURCES
+    src/lol/matrix.cpp
+    src/lol/timer.cpp
+    src/specache.cpp
+    src/netcfg.cpp
+    src/innet.cpp
+    src/chat.cpp
+    src/endgame.cpp
+    src/loadgame.cpp
+    src/profile.cpp
+    src/cop.cpp
+    src/statbar.cpp
+    src/compiled.cpp
+    src/ant.cpp
+    src/sensor.cpp
+    src/demo.cpp
+    src/lcache.cpp
+    src/nfclient.cpp
+    src/clisp.cpp
+    src/gui.cpp
+    src/transp.cpp
+    src/collide.cpp
+    src/property.cpp
+    src/cache.cpp
+    src/particle.cpp
+    src/objects.cpp
+    src/extend.cpp
+    src/console.cpp
+    src/ability.cpp
+    src/items.cpp
+    src/dev.cpp
+    src/chars.cpp
+    src/level.cpp
+    src/smallfnt.cpp
+    src/automap.cpp
+    src/help.cpp
+    src/intsect.cpp
+    src/loader2.cpp
+    src/seq.cpp
+    src/points.cpp
+    src/fnt6x13.cpp
+    src/morpher.cpp
+    src/menu.cpp
+    src/director.cpp
+    src/view.cpp
+    src/configuration.cpp
+    src/game.cpp
+    src/light.cpp
+    src/devsel.cpp
+    src/crc.cpp
+    src/gamma.cpp
+    src/ui/volumewindow.cpp
+    src/ui/textmenu.cpp
+)
+
+set(ABUSE_IMLIB_SOURCES
+    src/imlib/filter.cpp
+    src/imlib/image.cpp
+    src/imlib/transimage.cpp
+    src/imlib/linked.cpp
+    src/imlib/input.cpp
+    src/imlib/palette.cpp
+    src/imlib/include.cpp
+    src/imlib/fonts.cpp
+    src/imlib/specs.cpp
+    src/imlib/supmorph.cpp
+    src/imlib/pcxread.cpp
+    src/imlib/jrand.cpp
+    src/imlib/keys.cpp
+    src/imlib/dprint.cpp
+    src/imlib/status.cpp
+    src/imlib/pmenu.cpp
+    src/imlib/scroller.cpp
+    src/imlib/filesel.cpp
+    src/imlib/tools.cpp
+    src/imlib/guistat.cpp
+    src/imlib/sprite.cpp
+    src/imlib/jwindow.cpp
+    src/imlib/video.cpp
+)
+
+set(ABUSE_NET_SOURCES
+    src/net/gserver.cpp
+    src/net/gclient.cpp
+    src/net/fileman.cpp
+    src/net/sock.cpp
+    src/net/tcpip.cpp
+)
+
+set(ABUSE_LISP_SOURCES
+    src/lisp/lisp.cpp
+    src/lisp/lisp_opt.cpp
+    src/lisp/lisp_gc.cpp
+    src/lisp/trig.cpp
+)
+
+set(ABUSE_PLATFORM_SOURCES
+    src/sdlport/video.cpp
+    src/sdlport/mouse.cpp
+    src/sdlport/event.cpp
+    src/sdlport/sound.cpp
+    src/sdlport/timing.cpp
+    src/sdlport/jdir.cpp
+    src/sdlport/joystick.cpp
+    src/sdlport/setup.cpp
+    src/sdlport/hmi.cpp
+)

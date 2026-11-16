@@ -1,0 +1,17 @@
+#pragma once
+#define PACKAGE_NAME "Abuse Modern"
+#define PACKAGE_VERSION "@PROJECT_VERSION@"
+#define VERSION PACKAGE_VERSION
+#define STDC_HEADERS 1
+#cmakedefine HAVE_DIRENT_H 1
+#cmakedefine HAVE_FCNTL_H 1
+#cmakedefine HAVE_MALLOC_H 1
+#cmakedefine HAVE_MEMORY_H 1
+#cmakedefine HAVE_NETINET_IN_H 1
+#cmakedefine HAVE_STDINT_H 1
+#cmakedefine HAVE_STDLIB_H 1
+#cmakedefine HAVE_STRING_H 1
+#cmakedefine HAVE_STRINGS_H 1
+#cmakedefine HAVE_SYS_IOCTL_H 1
+#cmakedefine HAVE_SYS_TIME_H 1
+#cmakedefine HAVE_UNISTD_H 1

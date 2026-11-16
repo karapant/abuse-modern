@@ -1,0 +1,27 @@
+# Local builds and downloaded dependencies
+/build*/
+/out/
+/cache/
+/deps/
+CMakeUserPresets.json
+compile_commands.json
+# External original game assets (engine source IS tracked)
+/data
+/assets/
+# Local settings, saves, editor output and screenshots
+/abuserc
+/save*.spe
+/levsave.bak
+/fastload.dat
+/sd_cache.tmp
+/light.tbl
+/gamma.lsp
+*.asv
+*.sav
+screenshot*.bmp
+*.log
+# Editor/OS files
+.vscode/
+.idea/
+.DS_Store
+*~
