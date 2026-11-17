@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -143,7 +144,7 @@ int file_manager::nfs_client::send_read()   // return 0 if failure on socket, no
     read_total=size_to_read>(READ_PACKET_SIZE-2) ? (READ_PACKET_SIZE-2) : size_to_read;
 
     actual=read(file_fd,buf+2,read_total);
-    ushort tmp = lstl(actual);
+    uint16_t tmp = lstl(actual);
     memcpy(buf, &tmp, sizeof(tmp));
 
     int write_amount=sock->write(buf,actual+2);
@@ -327,7 +328,7 @@ int file_manager::remote_file::unbuffered_read(void *buffer, size_t count)
     int32_t total_read=0;
     char buf[READ_PACKET_SIZE];
 
-    ushort packet_size;
+    uint16_t packet_size;
     do
     {
       if (sock->read(&packet_size,sizeof(packet_size))!=sizeof(packet_size))
@@ -338,7 +339,7 @@ int file_manager::remote_file::unbuffered_read(void *buffer, size_t count)
 
       packet_size=lstl(packet_size);
 
-      ushort size_read=sock->read(buf,packet_size);
+      uint16_t size_read=sock->read(buf,packet_size);
 
       if (size_read!=packet_size)
       {
