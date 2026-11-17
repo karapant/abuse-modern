@@ -69,7 +69,10 @@ Bindings, controller settings, volumes, difficulty, view resolution and window s
 persist. **Settings → Display mode** switches between windowed and native desktop
 fullscreen. **View resolution** changes immediately: 320×200 (original), 480×300,
 640×400 or widescreen 640×360. Larger views show more of the level with smaller
-characters. **Window scale** changes window size. Launches start in native
+characters. **Window scale** changes window size. Under **Settings → Enhancements**, toggle
+**Modern HUD** and **Enhanced Lighting**. Both are enabled by default and saved.
+Enhanced Lighting smooths light falloff and adds colored flashes, sparks and
+smoke to explosions that use the game's flash effect. Launches start in native
 fullscreen; use `-windowed` to start windowed. New configurations use a 480×300
 view. Use `-view 640x360` for a temporary override.
 Command-line options override saved settings for that launch. Saves/settings normally live in

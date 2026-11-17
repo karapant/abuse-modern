@@ -46,6 +46,8 @@
 #include "loadgame.h"
 #include "scroller.h"
 #include "netcfg.h"
+#include "sbar.h"
+#include "view.h"
 
 #if !defined __CELLOS_LV2__
 #   include "net/sock.h"
@@ -818,6 +820,28 @@ static void text_controller()
     }
 }
 
+static void text_enhancements()
+{
+    TextMenu menu;
+    for (;;) {
+        menu.items = {
+            {1, "Modern HUD", game_settings.modern_hud ? "[x]" : "[ ]", true, true},
+            {2, "Enhanced Lighting", game_settings.enhanced_lighting ? "[x]" : "[ ]", true, true},
+            {ID_CANCEL, "Back", ""}
+        };
+        const auto action = run_text_menu(menu, "ENHANCEMENTS", "ENTER TO TOGGLE   ESC BACK");
+        if (action.id == -1 || action.id == ID_CANCEL) return;
+        const bool hud = action.id == 1;
+        if (!save_setting(hud ? Setting::ModernHud : Setting::EnhancedLighting,
+                          !(hud ? game_settings.modern_hud : game_settings.enhanced_lighting))) {
+            text_notice("SAVE FAILED", "Could not save enhancement setting.");
+        } else if (hud) {
+            recalc_local_view_space();
+            sbar.need_refresh();
+        }
+    }
+}
+
 static void text_settings()
 {
     constexpr int fullscreen_action = 9001;
@@ -840,12 +864,14 @@ static void text_settings()
             {9006, "Mouse wheel", game_settings.wheel_weapons ? "Weapons  < >" : "Off  < >", true, true},
             {9002, "Key bindings", ""},
             {9003, "Controller", ""},
+            {9007, "Enhancements", ""},
             {ID_CANCEL, "Back", ""}
         };
         TextMenuAction action = run_text_menu(menu, "SETTINGS", "LEFT / RIGHT ADJUST   ESC BACK");
         if (action.id == -1 || action.id == ID_CANCEL) return;
         if (action.id == 9002) text_controls();
         else if (action.id == 9003) text_controller();
+        else if (action.id == 9007) text_enhancements();
         else if (action.id == ID_DIFFICULTY) {
             const int value = (difficulty_index() + action.direction + 4) % 4;
             if (save_setting(Setting::Difficulty, value)) l_difficulty->SetValue(levels[value]);

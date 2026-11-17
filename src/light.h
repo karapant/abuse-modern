@@ -1,3 +1,4 @@
+// Modified for Abuse Modern. Modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -72,6 +73,9 @@ void read_lights(spec_directory *sd, bFILE *fp, char const *level_name);
 void delete_patch_list(light_patch *first);
 light_patch *find_patch(int screenx, int screeny, light_patch *list);
 int calc_light_value(int32_t x, int32_t y, light_patch *which);
+void add_explosion_effect(int x, int y, int radius, uint32_t tick);
+void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *lookup,
+                           int ambient, palette &colors, uint32_t tick);
 void light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *light_lookup, uint16_t ambient);
 void double_light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *light_lookup, uint16_t ambient,
              image *out, int32_t out_x, int32_t out_y);

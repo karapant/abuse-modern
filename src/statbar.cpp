@@ -15,6 +15,7 @@
 
 #include "common.h"
 #include "ui/hud_skin.h"
+#include "sdlport/preferences.h"
 #include "palette.h"
 #include <algorithm>
 #include <array>
@@ -133,6 +134,27 @@ void status_bar::redraw(image *screen)
     if (!v || !total_weapons || !playing_state(the_game->state)) return;
     int sx, sy, right, bottom; area(sx, sy, right, bottom);
     const int scale = small_render ? 2 : 1;
+    if (!game_settings.modern_hud) {
+        scale_put(cache.img(sbar), screen, sx, sy, right - sx, bottom - sy);
+        draw_health(screen, v->focus ? v->focus->hp() : 0);
+        for (int i = 0; i < std::min(TOTAL_WEAPONS, total_weapons); ++i) {
+            if (!v->has_weapon(i)) continue;
+            const int left = sx + (40 + i * 34) * scale;
+            const bool selected = v->current_weapon == i;
+            image *icon = cache.img(selected ? bweap[i] : dweap[i]);
+            image *numpad = cache.img(sbar_numpad);
+            scale_put_trans(icon, screen, left, sy, icon->Size().x * scale, icon->Size().y * scale);
+            scale_put_trans(numpad, screen, left - 2, sy + 21 * scale,
+                            numpad->Size().x * scale, numpad->Size().y * scale);
+            draw_ammo(screen, i, v->weapon_total(i), selected);
+            if (icon_in_selection == i) {
+                image *highlight = cache.img(sbar_select);
+                scale_put_trans(highlight, screen, left + 4 * scale, sy,
+                                highlight->Size().x * scale, highlight->Size().y * scale);
+            }
+        }
+        return;
+    }
     scale_put(hud_skin(), screen, sx, sy, hud_width * scale, hud_height * scale);
     draw_health(screen, v->focus ? v->focus->hp() : 0);
     const int accent = pal->find_closest(240, 169, 66), muted = pal->find_closest(62, 68, 73);
@@ -162,6 +184,11 @@ void status_bar::area(int &x1, int &y1, int &x2, int &y2)
   }
 
   int sb_w=hud_width, sb_h=hud_height;
+  if (!game_settings.modern_hud) {
+    image *classic = cache.img(sbar);
+    sb_w = classic->Size().x;
+    sb_h = classic->Size().y;
+  }
 
   if (small_render) { sb_w*=2; sb_h*=2; }
 
@@ -179,6 +206,10 @@ void status_bar::draw_health(image *screen,int amount)
     int x1,y1,x2,y2;
     area(x1,y1,x2,y2);
     const int scale = small_render ? 2 : 1;
+    if (!game_settings.modern_hud) {
+      draw_num(screen, x1 + 17 * scale, y1 + 11 * scale, std::clamp(amount, 0, 999), bnum);
+      return;
+    }
     draw_num(screen, x1 + 9 * scale, y1 + 32 * scale, std::clamp(amount, 0, 999), bnum);
     const int dark = pal->find_closest(35, 18, 18), red = pal->find_closest(220, 42, 38);
     screen->bar(x1 + 6 * scale, y1 + 43 * scale, x1 + 25 * scale, y1 + 44 * scale, dark);
@@ -195,9 +226,10 @@ void status_bar::draw_ammo(image *screen, int weapon_num, int amount, int light)
   {
     int x1,y1,x2,y2;
     area(x1,y1,x2,y2);
-    draw_num(screen,
-        x1 + (hud_health_width + 10 + weapon_num * hud_slot_width) * (small_render ? 2 : 1),
-        y1 + 32 * (small_render ? 2 : 1), std::clamp(amount, 0, 999), bnum+(light ? 20 : 10));
+    const int scale = small_render ? 2 : 1;
+    const int x = game_settings.modern_hud ? hud_health_width + 10 + weapon_num * hud_slot_width : 52 + weapon_num * 34;
+    const int y = game_settings.modern_hud ? 32 : 25;
+    draw_num(screen, x1 + x * scale, y1 + y * scale, std::clamp(amount, 0, 999), bnum + (light ? 20 : 10));
   }
 }
 
@@ -256,16 +288,6 @@ void status_bar::step()
   if (!v) return ;
   if (!DEFINEDP(symbol_value(l_mouse_can_switch)) || !symbol_value(l_mouse_can_switch)) return ;
 
-  int sb_w,sb_h;
-  if (sbar>0 && total_weapons)
-  {
-    image *sb=cache.img(sbar);
-
-    // status bar width & height
-    sb_w=sb->Size().x;
-    sb_h=sb->Size().y;
-  }
-
   // see if the mouse is in the sbar region (demo_x already corrected for small_render)
   int sx1,sy1,sx2,sy2;
   area(sx1,sy1,sx2,sy2);
@@ -290,22 +312,11 @@ void status_bar::step()
   if (mx>sx1 && my>sy1 && mx<sx2 && my<sy2)
   {
 
-    int new_target;
-
-    mx-=sx1;
-    if (small_render) mx/=2;
-
-
-    mx-=hud_health_width;
-    if (mx<0) new_target=0;
-    else
-    {
-      new_target=mx/hud_slot_width;
-      if (new_target>=TOTAL_WEAPONS)
-        new_target=TOTAL_WEAPONS-1;
-      if (new_target>=total_weapons)
-        new_target=total_weapons-1;
-    }
+    mx -= sx1;
+    if (small_render) mx /= 2;
+    const int first_slot = game_settings.modern_hud ? hud_health_width : 40;
+    const int slot_width = game_settings.modern_hud ? hud_slot_width : 34;
+    const int new_target = std::clamp((mx - first_slot) / slot_width, 0, std::min(TOTAL_WEAPONS, total_weapons) - 1);
 
     if (v->has_weapon(new_target) && new_target!=icon_in_selection)
     {

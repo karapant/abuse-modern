@@ -1,3 +1,4 @@
+// Modified for Abuse Modern. Modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -16,6 +17,7 @@
 #include <unistd.h>
 
 #include "common.h"
+#include "sdlport/preferences.h"
 
 #include "sdlport/joy.h"
 
@@ -704,6 +706,10 @@ void *l_caller(long number, void *args)
       int r2=lnumber_value(CAR(args)->Eval()); args=lcdr(args);
       int xs=lnumber_value(CAR(args)->Eval()); args=lcdr(args);
       int ys=lnumber_value(CAR(args)->Eval());
+      // EXP_LIGHT is the original game's short-lived explosion flash object.
+      if (game_settings.enhanced_lighting && current_level && current_object &&
+          !strcmp(object_names[current_object->otype], "EXP_LIGHT"))
+        add_explosion_effect(x, y, r2, current_level->tick_counter());
       return LPointer::Create(add_light_source(t,x,y,r1,r2,xs,ys));
     } break;
     case 15 :

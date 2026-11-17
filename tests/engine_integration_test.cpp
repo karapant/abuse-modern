@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Runs the real engine and dialogs with SDL events; original assets are opt-in.
 #include <SDL3/SDL.h>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -27,6 +28,9 @@
 #include "video.h"
 #include "sbar.h"
 #include "jwindow.h"
+#include "light.h"
+#include "loader2.h"
+#include <cstring>
 
 int abuse_main(int, char **);
 static int phase = 0;
@@ -66,6 +70,46 @@ static void check_hud()
     sbar.bounds(left, top, right, bottom);
     require(right > left && top >= 0 && bottom == yres && abs(left + right - xres) <= 1,
             "weapon bar, health and ammo share bottom-center screen anchor");
+}
+static void check_explosion_effect()
+{
+    int type = 0;
+    while (type < total_objects && strcmp(object_names[type], "EXP_LIGHT")) ++type;
+    require(type < total_objects, "stock explosion flash type exists");
+    auto *previous = current_object;
+    auto *flash = create(type, 80, 64, 0, 90);
+    require(flash->decide(), "stock explosion flash runs its script");
+    auto *light = flash->get_light(0);
+    require(light != nullptr, "stock flash creates a light");
+    flash->remove_light(light);
+    delete_light(light);
+    delete flash;
+    current_object = previous;
+
+    image test(vec2i(160, 128), nullptr, 2);
+    const int gray = pal->find_closest(96, 96, 96);
+    const auto tick = current_level->tick_counter();
+    const auto sample = [&](unsigned age, int x, int y) {
+        test.clear(gray);
+        enhanced_light_screen(&test, 0, 0, white_light, 63, *pal, tick + age);
+        return test.Pixel(vec2i(x, y));
+    };
+    require(sample(0, 80, 64) != gray, "scripted blast casts a colored flash");
+    require(sample(0, 76, 62) == pal->find_closest(255, 222, 128), "blast draws bright sparks");
+    require(sample(12, 80, 52) != gray, "smoke remains after the flash");
+    require(sample(21, 80, 52) == gray, "blast overlay expires");
+
+    // Expose the light levels directly to verify pixel falloff and the viewport clip.
+    std::array<uint8_t, 64 * 256> levels{};
+    for (size_t i = 0; i < levels.size(); ++i) levels[i] = i / 256;
+    light = add_light_source(0, 20032, 20032, 0, 32, 0, 0);
+    test.clear(80);
+    test.SetClip(3, 4, 70, 71);
+    enhanced_light_screen(&test, 20000, 20000, levels.data(), 0, *pal, tick);
+    require(test.Pixel(vec2i(35, 36)) == 63 && test.Pixel(vec2i(3, 4)) == 0 &&
+            test.Pixel(vec2i(55, 36)) > test.Pixel(vec2i(56, 36)) &&
+            test.Pixel(vec2i(2, 36)) == 80, "lighting has per-pixel falloff and respects the viewport");
+    delete_light(light);
 }
 static void check_wheel(view *v)
 {
@@ -208,6 +252,28 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         check_hud();
         require(player_list->focus->hp() == 17 && player_list->cx2 < xres && player_list->cy2 < yres,
                 "paused resolution change preserves player state and keeps camera in bounds");
+        if (selected(menu, "Enhancements")) { enter(); phase = 64; }
+        else choose(menu, "Enhancements");
+    } else if (phase == 64 && page == "ENHANCEMENTS") {
+        require(menu->items.at(0).value == "[x]" && menu->items.at(1).value == "[x]",
+                "both enhancement checkboxes are checked by default");
+        if (selected(menu, "Modern HUD")) { enter(); phase = 65; }
+        else choose(menu, "Modern HUD");
+    } else if (phase == 65 && page == "ENHANCEMENTS") {
+        if (game_settings.modern_hud) return;
+        require(menu->items.at(0).value == "[ ]", "HUD checkbox reflects toggle");
+        check_hud();
+        if (selected(menu, "Enhanced Lighting")) { enter(); phase = 66; }
+        else choose(menu, "Enhanced Lighting");
+    } else if (phase == 66 && page == "ENHANCEMENTS") {
+        if (game_settings.enhanced_lighting) return;
+        GameSettings reloaded;
+        require(menu->items.at(1).value == "[ ]" &&
+                settings_load((root / "settings.cfg").string(), reloaded) &&
+                !reloaded.modern_hud && !reloaded.enhanced_lighting,
+                "both disabled preferences are saved from the pause menu");
+        escape(); phase = 67;
+    } else if (phase == 67 && page == "SETTINGS") {
         escape(); phase = 63;
     } else if (phase == 63 && page == "PAUSED") { phase = 15; choose(menu, "Load game");
     } else if (phase == 15 && page == "PAUSED") {
@@ -252,6 +318,7 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
             the_game->draw(0); snapshot("gameplay-wide.bmp");
             for (int i = 0; i < total_weapons; ++i) v->weapons[i] = ammo[i];
         }
+        check_explosion_effect();
         check_wheel(v);
         int x, y, b1, b2, b3, b4;
         the_game->set_key_down('j', 1);
@@ -280,6 +347,8 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         require(SDL_PushEvent(&start), "inject short controller pause press");
         start.type = SDL_EVENT_GAMEPAD_BUTTON_UP; require(SDL_PushEvent(&start), "inject short controller pause release");
     } else if (phase == 17) {
+        require(!game_settings.modern_hud && !game_settings.enhanced_lighting, "classic modes stay active after loading");
+        the_game->draw(0);
         require(v->focus->hp() == 73, "load dialog restores saved player health");
         require(v->cx2 < xres && v->cy2 < yres, "save loading adapts camera to current live resolution");
         check_hud();

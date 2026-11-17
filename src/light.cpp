@@ -1,3 +1,4 @@
+// Modified for Abuse Modern. Modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -13,6 +14,10 @@
 #endif
 
 #include <stdlib.h>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <vector>
 
 #include "common.h"
 
@@ -34,6 +39,22 @@ short shutdown_lighting_value,shutdown_lighting=0;
 extern char disable_autolight;   // defined in dev.h
 
 int light_detail=MEDIUM_DETAIL;
+
+namespace {
+struct ExplosionEffect {
+    int x, y, radius;
+    uint32_t start;
+};
+std::array<ExplosionEffect, 32> explosions{};
+size_t next_explosion = 0;
+constexpr unsigned explosion_lifetime = 20;
+}
+
+void add_explosion_effect(int x, int y, int radius, uint32_t tick)
+{
+    explosions[next_explosion] = {x, y, std::clamp(radius, 8, 160), tick};
+    next_explosion = (next_explosion + 1) % explosions.size();
+}
 
 int32_t light_to_number(light_source *l)
 {
@@ -63,6 +84,8 @@ light_source *light_source::copy()
 
 void delete_all_lights()
 {
+  explosions = {};
+  next_explosion = 0;
   while (first_light_source)
   {
     if (dev_cont)
@@ -749,6 +772,122 @@ inline void put_8line(uint8_t *in_line, uint8_t *out_line, uint8_t *remap, uint8
 }
 
 
+// Paint into the indexed world image so scrolling, clipping and palette fades
+// also apply to the effects. No simulation objects or random calls are needed.
+void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *lookup,
+                           int ambient, palette &colors, uint32_t tick)
+{
+    if (light_detail == POOR_DETAIL) return;
+    int left, top, right, bottom;
+    target->GetClip(left, top, right, bottom);
+    const int width = right - left, height = bottom - top;
+    if (width <= 0 || height <= 0) return;
+
+    if (shutdown_lighting && !disable_autolight) ambient = shutdown_lighting_value;
+    if (ambient != 63) {
+        const int base = std::clamp(ambient + ambient_ramp, 0, 63);
+        static std::vector<uint8_t> levels, solid;
+        levels.assign(size_t(width) * height, base);
+        solid.assign(levels.size(), 0);
+        for (const light_source *light = first_light_source; light; light = light->next) {
+            const int x1 = std::max(0, light->x1 - world_x);
+            const int y1 = std::max(0, light->y1 - world_y);
+            const int x2 = std::min(width - 1, light->x2 - world_x);
+            const int y2 = std::min(height - 1, light->y2 - world_y);
+            const int x_scale = 1 << std::clamp(light->xshift, 0, 16);
+            const int y_scale = 1 << std::clamp(light->yshift, 0, 16);
+            for (int y = y1; y <= y2; ++y) {
+                const float dy = float(y + world_y - light->y) * y_scale;
+                for (int x = x1; x <= x2; ++x) {
+                    const size_t offset = size_t(y) * width + x;
+                    if (solid[offset]) continue;
+                    if (light->type == 9) {
+                        levels[offset] = std::clamp(light->inner_radius, 0, 63);
+                        solid[offset] = 1;
+                    } else if (levels[offset] < 63) {
+                        const float dx = float(x + world_x - light->x) * x_scale;
+                        const float distance = std::sqrt(dx * dx + dy * dy);
+                        const float falloff = std::clamp((light->outer_radius - distance) /
+                            std::max(1.f, float(light->outer_radius) - light->inner_radius), 0.f, 1.f);
+                        const int strength = int(63 * falloff * falloff * (3 - 2 * falloff) + 0.5f);
+                        levels[offset] = std::min(63, levels[offset] + strength);
+                    }
+                }
+            }
+        }
+        for (int y = 0; y < height; ++y) {
+            auto *row = target->scan_line(top + y) + left;
+            for (int x = 0; x < width; ++x)
+                row[x] = lookup[levels[size_t(y) * width + x] * 256 + row[x]];
+        }
+    }
+
+    // Cache palette blends. The flash adds warm light while smoke softens the background.
+    static std::array<std::array<uint8_t, 256>, 8> warm, smoke;
+    static std::array<uint8_t, 768> previous_palette{};
+    static bool palette_ready = false;
+    const auto prepare_blends = [&] {
+        std::array<uint8_t, 768> current_palette{};
+        for (int i = 0; i < 256; ++i) {
+            current_palette[3 * i] = colors.red(i);
+            current_palette[3 * i + 1] = colors.green(i);
+            current_palette[3 * i + 2] = colors.blue(i);
+        }
+        if (palette_ready && current_palette == previous_palette) return;
+        for (int strength = 0; strength < 8; ++strength) {
+            for (int i = 0; i < 256; ++i) {
+                const int r = colors.red(i), g = colors.green(i), b = colors.blue(i);
+                warm[strength][i] = colors.find_closest(std::min(255, r + strength * 12),
+                    std::min(255, g + strength * 5), std::min(255, b + strength));
+                smoke[strength][i] = colors.find_closest((r * (16 - strength) + 70 * strength) / 16,
+                    (g * (16 - strength) + 66 * strength) / 16, (b * (16 - strength) + 63 * strength) / 16);
+            }
+        }
+        previous_palette = current_palette;
+        palette_ready = true;
+    };
+    bool blends_ready = false;
+    for (const auto &burst : explosions) {
+        const unsigned age = tick - burst.start;
+        if (!burst.radius || age >= explosion_lifetime) continue;
+        const int cx = left + burst.x - world_x, cy = top + burst.y - world_y;
+        if (cx + burst.radius < left || cx - burst.radius >= right ||
+            cy + burst.radius < top || cy - burst.radius >= bottom) continue;
+        if (!blends_ready) {
+            prepare_blends();
+            blends_ready = true;
+        }
+        const auto blend_disc = [&](int px, int py, int radius, int strength, const auto &table) {
+            if (strength <= 0) return;
+            const int radius_squared = radius * radius;
+            for (int y = std::max(top, py - radius); y < std::min(bottom, py + radius + 1); ++y) {
+                auto *row = target->scan_line(y);
+                for (int x = std::max(left, px - radius); x < std::min(right, px + radius + 1); ++x) {
+                    const int dx = x - px, dy = y - py;
+                    const int blend = strength * (radius_squared - dx * dx - dy * dy) / radius_squared;
+                    if (blend > 0) row[x] = table[blend][row[x]];
+                }
+            }
+        };
+        if (age < 7) blend_disc(cx, cy, burst.radius, 7 - int(age), warm);
+        if (age > 2) {
+            for (int i = -1; i <= 1; ++i) {
+                blend_disc(cx + i * (4 + int(age) / 3), cy - int(age) - 3 * std::abs(i),
+                           5 + int(age) / 3, (20 - int(age)) / 3, smoke);
+            }
+        }
+        if (age < 10) {
+            const int spark = age < 4 ? colors.find_closest(255, 222, 128) : colors.find_closest(239, 116, 39);
+            constexpr int velocities[][2] = {{-4,-2}, {-3,-4}, {-1,-5}, {1,-4}, {3,-3}, {4,-1}};
+            for (const auto &velocity : velocities) {
+                const int t = int(age) + 1;
+                const int x = cx + velocity[0] * t, y = cy + velocity[1] * t + t * t / 5;
+                target->line(x - velocity[0] / 2, y - velocity[1] / 2, x, y, spark);
+            }
+        }
+    }
+}
+
 void light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *light_lookup, uint16_t ambient)
 {
   int lx_run=0,ly_run;                     // light block x & y run size in pixels ==  (1<<lx_run)
@@ -916,7 +1055,8 @@ void double_light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *l
     case LOW_DETAIL :
     { lx_run=4; ly_run=3; } break;       // 16 x 8 patches
     case POOR_DETAIL :                   // poor detail is no lighting
-    return ;
+    ambient = 63;
+    break;
   }
   if ((int)ambient+ambient_ramp<0)
     min_light_level=0;

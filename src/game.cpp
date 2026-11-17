@@ -1103,9 +1103,12 @@ void Game::draw_map(view *v, int interpolate)
 
     if(dev & DRAW_LIGHTS)
     {
+      const bool enhanced = game_settings.enhanced_lighting;
+      if (enhanced)
+        enhanced_light_screen(screen, xoff, yoff, white_light, v->ambient, *pal, current_level->tick_counter());
       if(small_render)
       {
-    double_light_screen(screen, xoff, yoff, white_light, v->ambient, old_screen, old_cx1, old_cy1);
+    double_light_screen(screen, xoff, yoff, white_light, enhanced ? 63 : v->ambient, old_screen, old_cx1, old_cy1);
 
     v->cx1 = old_cx1;
     v->cy1 = old_cy1;
@@ -1115,7 +1118,7 @@ void Game::draw_map(view *v, int interpolate)
       } else
       {
     screen->dirt_on();
-    light_screen(screen, xoff, yoff, white_light, v->ambient);
+    if (!enhanced) light_screen(screen, xoff, yoff, white_light, v->ambient);
       }
 
     } else
