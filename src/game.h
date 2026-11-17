@@ -107,6 +107,7 @@ public :
 
   void ftile_on(int screenx, int screeny, int32_t &x, int32_t &y);
   void btile_on(int screenx, int screeny, int32_t &x, int32_t &y);
+  bool set_view_resolution(int preset);
   void toggle_delay();
   void set_delay(int on) { no_delay=!on; }
   void pan(int xv, int yv);

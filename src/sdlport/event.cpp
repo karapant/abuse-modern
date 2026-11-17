@@ -32,6 +32,7 @@
 #include "event.h"
 #include "game.h"
 #include "platform.h"
+#include "preferences.h"
 #include "controller.h"
 
 extern int get_key_binding(const char *, int);
@@ -182,7 +183,9 @@ void event_handler::get_event(event &ev)
         float delta = input.wheel.y;
         if (input.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) delta = -delta;
         if (delta != 0) {
-            ev.key = the_game && the_game->state == RUN_STATE && !controller_in_menu() ?
+            const bool gameplay = the_game && the_game->state == RUN_STATE && !controller_in_menu();
+            if (gameplay && !game_settings.wheel_weapons) break;
+            ev.key = gameplay ?
                 get_key_binding(delta > 0 ? "b4" : "b3", 0) : delta > 0 ? JK_UP : JK_DOWN;
             ev.type = EV_KEY;
             event *release = new event;

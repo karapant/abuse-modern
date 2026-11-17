@@ -9,12 +9,14 @@
 GameSettings game_settings, saved_settings;
 namespace {
 struct Field { const char *name; int GameSettings::*member; int low, high; };
-const std::array<Field, 5> fields = {{
+const std::array<Field, 7> fields = {{
     {"sfx_volume", &GameSettings::sfx_volume, 0, 127},
     {"music_volume", &GameSettings::music_volume, 0, 127},
     {"difficulty", &GameSettings::difficulty, -1, 3},
     {"fullscreen", &GameSettings::fullscreen, 0, 1},
-    {"scale", &GameSettings::scale, 1, 8}}};
+    {"scale", &GameSettings::scale, 1, 8},
+    {"view_resolution", &GameSettings::view_resolution, 0, 3},
+    {"wheel_weapons", &GameSettings::wheel_weapons, 0, 1}}};
 bool integer(const std::string &text, int &value)
 {
     std::istringstream input(text);
@@ -66,6 +68,10 @@ bool settings_override(GameSettings &settings, const std::string &option, const 
     if (option == "-fullscreen" || option == "-windowed") {
         settings.fullscreen = option == "-fullscreen"; return true;
     }
+    if (option == "-view") {
+        for (int i = 0; i < 4; ++i) if (text == view_label(i)) { settings.view_resolution = i; return true; }
+        return false;
+    }
     if (option == "-difficulty") {
         const std::array<std::string, 4> names = {"easy", "normal", "hard", "extreme"};
         for (size_t i = 0; i < names.size(); ++i) if (text == names[i]) { settings.difficulty = int(i); return true; }
@@ -94,3 +100,7 @@ bool save_setting(Setting setting, int value)
     const auto directory = get_save_filename_prefix();
     return directory && *directory && remember_setting(std::string(directory) + "settings.cfg", saved_settings, game_settings, setting, value);
 }
+
+int view_width(int preset) { return preset == 0 ? 320 : preset == 1 ? 480 : 640; }
+int view_height(int preset) { return preset == 0 ? 200 : preset == 1 ? 300 : preset == 2 ? 400 : 360; }
+std::string view_label(int preset) { return std::to_string(view_width(preset)) + "x" + std::to_string(view_height(preset)); }

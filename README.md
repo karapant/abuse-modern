@@ -1,7 +1,7 @@
 # Abuse Modern
 
 A modern source port of Abuse 0.8 with SDL3, CMake, readable menus,
-key rebinding and dual-stick gamepad support. Original gameplay and maps are retained.
+key rebinding, a new HUD and dual-stick gamepad support. Original gameplay and maps are retained.
 
 Builds and tests on **Linux and macOS**. Windows is not currently supported.
 
@@ -43,6 +43,8 @@ files are insufficient; sound effects work without music patches.
 
 **Keyboard/mouse:** WASD moves/jumps/uses, mouse aims, left click fires,
 right click uses the special action, and the wheel changes weapons.
+**Settings → Mouse wheel** enables/disables weapon cycling; menu scrolling stays
+available. Wheel controls follow your saved Previous/Next weapon bindings.
 Escape pauses/returns; F11 toggles fullscreen; F12 toggles mouse grab.
 Change bindings under **Settings → Key bindings**.
 
@@ -63,9 +65,14 @@ and have gameplay input disabled; menu navigation still works.
 Adjust the dead zone under **Settings → Controller**. Network text fields need
 a keyboard. Saving uses the original in-level save consoles.
 
-Bindings, controller settings, volumes, difficulty, fullscreen and window scale
-persist. Adjust display scale under **Settings → Window scale**. Command-line
-options override saved settings for that launch. Saves/settings normally live in
+Bindings, controller settings, volumes, difficulty, view resolution and window scale
+persist. **Settings → Display mode** switches between windowed and native desktop
+fullscreen. **View resolution** changes immediately: 320×200 (original), 480×300,
+640×400 or widescreen 640×360. Larger views show more of the level with smaller
+characters. **Window scale** changes window size. Launches start in native
+fullscreen; use `-windowed` to start windowed. New configurations use a 480×300
+view. Use `-view 640x360` for a temporary override.
+Command-line options override saved settings for that launch. Saves/settings normally live in
 `~/.local/share/abuse-modern/abuse-modern/` on Linux. Override with `ABUSE_SAVE_PATH`.
 
 ## Tests

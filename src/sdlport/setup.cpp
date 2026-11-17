@@ -46,6 +46,7 @@ void showHelp()
            "Usage: abuse [options]\n"
            "  -datadir PATH    External Abuse game data\n"
            "  -scale N         Initial window scale (1-8)\n"
+           "  -view WxH        View: 320x200, 480x300, 640x400 or 640x360\n"
            "  -size W H        Editor framebuffer size (320-4096 x 200-2160)\n"
            "  -fullscreen      Desktop fullscreen (F11 toggles)\n"
            "  -windowed        Override saved fullscreen setting\n"
@@ -79,7 +80,7 @@ void createRCFile(const char *path)
 {
     std::ofstream out(path);
     out << "; Abuse Modern configuration\n"
-           "fullscreen=0\nmono=0\ngrabmouse=0\nscale=3\n"
+           "fullscreen=1\nmono=0\ngrabmouse=0\nscale=3\n"
            "left=a\nright=d\nup=w\ndown=s\n"
            "fire=SPACE\nspecial=SHIFT_L\nweapprev=CTRL_R\nweapnext=INSERT\n";
 }
@@ -140,7 +141,7 @@ void parseCommandLine(int argc, char **argv)
         };
         const std::string option = argv[i];
         if (option == "-fullscreen" || option == "-windowed") settings_override(game_settings, option);
-        else if (option == "-scale" || option == "-sfx_volume" || option == "-music_volume" || option == "-difficulty") {
+        else if (option == "-view" || option == "-scale" || option == "-sfx_volume" || option == "-music_volume" || option == "-difficulty") {
             const char *value = arg(option.c_str());
             if (!settings_override(game_settings, option, value)) {
                 fprintf(stderr, "Invalid value for %s (see --help)\n", option.c_str()); exit(EXIT_FAILURE);
@@ -172,6 +173,7 @@ void setup(int argc, char **argv)
     for (int i = 1; i < argc; ++i)
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) { showHelp(); exit(0); }
     xres = 320; yres = 200;
+    flags.fullscreen = 1;
     keys.left = 'a'; keys.right = 'd'; keys.up = 'w'; keys.down = 's';
     keys.b2 = key_value("SPACE"); keys.b1 = key_value("SHIFT_L");
     keys.b3 = key_value("CTRL_R"); keys.b4 = key_value("INSERT");
@@ -199,12 +201,21 @@ void setup(int argc, char **argv)
     game_settings.scale = scale;
     settings_load(std::string(get_save_filename_prefix()) + "settings.cfg", game_settings);
     saved_settings = game_settings;
+    // Start in native fullscreen; -windowed remains an explicit launch override.
+    game_settings.fullscreen = 1;
     parseCommandLine(argc, argv);
     if (const char *assets = getenv("ABUSE_PATH"); assets && *assets) set_filename_prefix(assets);
     const std::string startup = std::string(get_filename_prefix()) + "abuse.lsp";
     if (!std::ifstream(startup)) {
         fprintf(stderr, "Cannot find Abuse game data at %s. Use -datadir PATH.\n", get_filename_prefix());
         exit(EXIT_FAILURE);
+    }
+    // Explicit -size remains available for editor/custom framebuffers.
+    bool custom_size = false;
+    for (int i = 1; i < argc; ++i) if (!strcmp(argv[i], "-size")) custom_size = true;
+    if (!custom_size) {
+        xres = view_width(game_settings.view_resolution);
+        yres = view_height(game_settings.view_resolution);
     }
     scale = game_settings.scale;
     flags.fullscreen = game_settings.fullscreen;

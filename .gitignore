@@ -38,3 +38,9 @@ screenshot*.bmp
 /preferences-fixture/
 /preferences-startup-fixture/
 /platform-preferences-fixture/
+
+/engine-integration-wide/
+
+/preferences-defaults-fixture/
+
+/preferences-fullscreen-fixture/

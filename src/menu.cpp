@@ -832,10 +832,12 @@ static void text_settings()
             {ID_DIFFICULTY, "Difficulty", std::string(names[difficulty_index()]) + "  < >", local, true},
             {ID_SFX_UP, "Sound effects", volume(sfx_volume), (sound_avail & SFX_INITIALIZED) != 0, true},
             {ID_MUSIC_UP, "Music", volume(music_volume), (sound_avail & MUSIC_INITIALIZED) != 0, true},
-            {fullscreen_action, "Fullscreen", SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN ? "On  < >" : "Off  < >", true, true},
+            {fullscreen_action, "Display mode", SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN ? "Fullscreen  < >" : "Windowed  < >", true, true},
+            {9005, "View resolution", view_label(game_settings.view_resolution) + "  < >", true, true},
             {9004, "Window scale", std::to_string(game_settings.scale) + "x  < >",
                 !(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN), true},
             {ID_LIGHT_OFF, "Brightness", "Adjust..."},
+            {9006, "Mouse wheel", game_settings.wheel_weapons ? "Weapons  < >" : "Off  < >", true, true},
             {9002, "Key bindings", ""},
             {9003, "Controller", ""},
             {ID_CANCEL, "Back", ""}
@@ -865,6 +867,13 @@ static void text_settings()
         } else if (action.id == fullscreen_action) {
             if (!platform_set_fullscreen(!(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN)))
                 text_notice("SAVE FAILED", "Could not change and save fullscreen. Previous value restored.");
+        } else if (action.id == 9005) {
+            const int value = (game_settings.view_resolution + action.direction + 4) % 4;
+            if (!the_game->set_view_resolution(value))
+                text_notice("DISPLAY ERROR", "Could not change and save view resolution. Previous view retained.");
+        } else if (action.id == 9006) {
+            if (!save_setting(Setting::WheelWeapons, !game_settings.wheel_weapons))
+                text_notice("SAVE FAILED", "Could not save mouse wheel setting. Previous value retained.");
         } else if (action.id == 9004) {
             const int value = std::clamp(game_settings.scale + action.direction, 1, 8);
             int old_width, old_height; SDL_GetWindowSize(platform_window(), &old_width, &old_height);

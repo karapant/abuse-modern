@@ -25,10 +25,12 @@
 #include "sdlport/controller.h"
 #include "sdlport/platform.h"
 #include "video.h"
+#include "sbar.h"
+#include "jwindow.h"
 
 int abuse_main(int, char **);
 static int phase = 0;
-static bool one_stick = false, warned = false;
+static bool one_stick = false, warned = false, wide_view = false;
 static SDL_Joystick *virtual_pad = nullptr;
 static SDL_JoystickID virtual_id = 0;
 static std::atomic<bool> reached{false}, finished{false};
@@ -58,6 +60,54 @@ static void choose(TextMenu *menu, const std::string &label)
     } else enter();
 }
 static bool selected(TextMenu *menu, const std::string &label) { return menu->items.at(menu->selected).label == label; }
+static void check_hud()
+{
+    int left, top, right, bottom;
+    sbar.bounds(left, top, right, bottom);
+    require(right > left && top >= 0 && bottom == yres && abs(left + right - xres) <= 1,
+            "weapon bar, health and ammo share bottom-center screen anchor");
+}
+static void check_wheel(view *v)
+{
+    require(total_weapons >= 2, "weapon fixture has at least two weapons");
+    require(control_rebind(ControlAction::Next, 'n') && control_rebind(ControlAction::Previous, 'p') &&
+            controls_save((root / "controls.cfg").string()), "persist secondary weapon controls");
+    control_reset();
+    require(controls_load((root / "controls.cfg").string()) && keys.b4 == 'n' && keys.b3 == 'p', "weapon bindings survive reload");
+    const int old_weapon = v->current_weapon, old_ammo = v->weapons[1];
+    v->weapons[1] = 10;
+    const auto scroll = [](float delta) {
+        SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+        SDL_Event wheel = {}; wheel.type = SDL_EVENT_MOUSE_WHEEL; wheel.wheel.y = delta;
+        require(SDL_PushEvent(&wheel), "inject physical wheel event");
+        event result; wm->eh->get_event(result); return result;
+    };
+    v->current_weapon = 0;
+    event ev = scroll(1);
+    require(ev.type == EV_KEY && ev.key == 'n' && v->handle_event(ev) && v->suggest.new_weapon == 1,
+            "wheel up follows saved Next binding and selects an available weapon");
+    wm->eh->get_event(ev);
+    require(ev.type == EV_KEYRELEASE && ev.key == 'n', "wheel pulse releases the weapon key");
+    v->current_weapon = 1;
+    ev = scroll(-1);
+    require(ev.type == EV_KEY && ev.key == 'p' && v->handle_event(ev) && v->suggest.new_weapon == 0,
+            "wheel down follows saved Previous binding and selects the preceding weapon");
+    wm->eh->get_event(ev);
+    require(save_setting(Setting::WheelWeapons, 0), "persist disabled weapon wheel");
+    GameSettings loaded;
+    require(settings_load((root / "settings.cfg").string(), loaded) && loaded.wheel_weapons == 0,
+            "weapon wheel preference reloads");
+    ev = scroll(1);
+    require(ev.type == EV_SPURIOUS, "disabled gameplay wheel emits no weapon action");
+    {
+        ControllerMenuScope menu;
+        ev = scroll(1);
+        require(ev.type == EV_KEY && ev.key == JK_UP, "menu wheel scrolling remains available when weapon wheel is disabled");
+        wm->eh->get_event(ev);
+    }
+    require(save_setting(Setting::WheelWeapons, 1), "restore weapon wheel");
+    v->current_weapon = old_weapon; v->weapons[1] = old_ammo; v->suggest.send_weapon_change = 0;
+}
 static void snapshot(const char *name)
 {
     put_image(screen, 0, 0); update_window_done();
@@ -103,10 +153,24 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         GameSettings saved;
         if (game_settings.scale != 4) return;
         int width, height; SDL_GetWindowSize(platform_window(), &width, &height);
-        require(settings_load((root / "settings.cfg").string(), saved) && saved.scale == 4 && width == 1280 && height == 800,
+        require(settings_load((root / "settings.cfg").string(), saved) && saved.scale == 4 && width == xres * 4 && height == yres * 4,
                 "window scale menu resizes live window and saves preference");
-        phase = 1;
-        choose(menu, "Key bindings");
+        if (selected(menu, "View resolution")) { enter(); phase = 53; } else choose(menu, "View resolution");
+    } else if (phase == 53 && page == "SETTINGS") {
+        const int expected = wide_view ? 0 : 1;
+        if (game_settings.view_resolution != expected) return;
+        GameSettings saved;
+        require(settings_load((root / "settings.cfg").string(), saved) && saved.view_resolution == expected &&
+                screen->Size().x == view_width(expected) && xres == view_width(expected) && yres == view_height(expected),
+                "resolution menu immediately resizes framebuffer and persists selection");
+        // Resizing warps the cursor; discard that synthetic motion before keyboard adjustment.
+        SDL_FlushEvent(SDL_EVENT_MOUSE_MOTION);
+        if (!selected(menu, "View resolution")) { choose(menu, "View resolution"); return; }
+        key(SDLK_LEFT, SDL_SCANCODE_LEFT); phase = 54;
+    } else if (phase == 54 && page == "SETTINGS") {
+        if (game_settings.view_resolution != (wide_view ? 3 : 0)) return;
+        require(xres == (wide_view ? 640 : 320) && yres == (wide_view ? 360 : 200), "live resolution can return to previous view");
+        phase = 1; choose(menu, "Key bindings");
     } else if (phase == 1 && page == "SETTINGS") {
         if (selected(menu, "Key bindings")) { enter(); phase = 2; } else choose(menu, "Key bindings");
     } else if (phase == 2 && page == "KEY BINDINGS") {
@@ -135,6 +199,17 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         escape(); phase = 13;
     } else if (phase == 13 && page == "MAIN MENU") {
         if (selected(menu, "New game")) { enter(); phase = 14; } else choose(menu, "New game");
+    } else if (phase == 60 && page == "PAUSED") {
+        if (selected(menu, "Settings")) { enter(); phase = 61; } else choose(menu, "Settings");
+    } else if (phase == 61 && page == "SETTINGS") {
+        if (selected(menu, "View resolution")) { enter(); phase = 62; } else choose(menu, "View resolution");
+    } else if (phase == 62 && page == "SETTINGS") {
+        if (game_settings.view_resolution != (wide_view ? 0 : 1)) return;
+        check_hud();
+        require(player_list->focus->hp() == 17 && player_list->cx2 < xres && player_list->cy2 < yres,
+                "paused resolution change preserves player state and keeps camera in bounds");
+        escape(); phase = 63;
+    } else if (phase == 63 && page == "PAUSED") { phase = 15; choose(menu, "Load game");
     } else if (phase == 15 && page == "PAUSED") {
         if (selected(menu, "Load game")) { enter(); phase = 16; } else choose(menu, "Load game");
     } else if (phase == 16 && page == "LOAD GAME") {
@@ -163,6 +238,21 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
     __real__ZN4view9get_inputEv(v);
     if (!the_game || the_game->state != RUN_STATE || !v->focus) return;
     if (phase == 14) {
+        require(v->cx2 - v->cx1 >= xres - 8, "camera uses full framebuffer width");
+        if (wide_view) {
+            require(xres == 640 && yres == 360 && v->cy2 - v->cy1 >= 300, "zoomed-out widescreen exposes a larger world area");
+            float wx, wy; SDL_RenderCoordinatesToWindow(platform_renderer(), xres / 2.0f, yres / 2.0f, &wx, &wy);
+            int mx, my; platform_mouse_position(wx, wy, mx, my);
+            require(abs(mx - xres / 2) <= 1 && abs(my - yres / 2) <= 1, "widescreen aiming maps to view center");
+        }
+        check_hud();
+        if (wide_view) {
+            std::vector<int> ammo;
+            for (int i = 0; i < total_weapons; ++i) { ammo.push_back(v->weapons[i]); v->weapons[i] = 100 + i; }
+            the_game->draw(0); snapshot("gameplay-wide.bmp");
+            for (int i = 0; i < total_weapons; ++i) v->weapons[i] = ammo[i];
+        }
+        check_wheel(v);
         int x, y, b1, b2, b3, b4;
         the_game->set_key_down('j', 1);
         get_movement(0, x, y, b1, b2, b3, b4);
@@ -184,13 +274,15 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         phase = 25;
         require(load_game(1, "SAVE") == 0 && phase == 26, "escape cancels checkpoint slot picker");
         v->focus->set_hp(17);
-        phase = 15;
+        phase = 60;
         SDL_Event start = {}; start.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
         start.gbutton.which = virtual_id; start.gbutton.button = SDL_GAMEPAD_BUTTON_START;
         require(SDL_PushEvent(&start), "inject short controller pause press");
         start.type = SDL_EVENT_GAMEPAD_BUTTON_UP; require(SDL_PushEvent(&start), "inject short controller pause release");
     } else if (phase == 17) {
         require(v->focus->hp() == 73, "load dialog restores saved player health");
+        require(v->cx2 < xres && v->cy2 < yres, "save loading adapts camera to current live resolution");
+        check_hud();
         phase = 18; escape();
     }
 }
@@ -198,9 +290,12 @@ int main(int argc, char **argv)
 {
     require(argc >= 2, "supply original game data path");
     one_stick = argc > 2 && std::string(argv[2]) == "--one-stick";
-    root = std::filesystem::current_path() / (one_stick ? "engine-integration-one-stick" : "engine-integration-fixture");
+    wide_view = argc > 2 && std::string(argv[2]) == "--wide-view";
+    root = std::filesystem::current_path() / (wide_view ? "engine-integration-wide" : one_stick ? "engine-integration-one-stick" : "engine-integration-fixture");
     std::filesystem::remove_all(root); std::filesystem::create_directories(root);
     GameSettings initial;
+    initial.fullscreen = 0;
+    initial.view_resolution = wide_view ? 3 : 0;
     initial.difficulty = 2;
     require(settings_write((root / "settings.cfg").string(), initial), "prepare persistent engine difficulty");
     std::ofstream(root / "gamma.lsp") << "(setq darkest_gray 16)\n";
@@ -232,9 +327,9 @@ int main(int argc, char **argv)
             if (!reached && SDL_WasInit(SDL_INIT_VIDEO)) enter();
         }
     });
-    char datadir[] = "-datadir", nosound[] = "-nosound";
-    char *arguments[] = {argv[0], datadir, argv[1], nosound, nullptr};
-    const int result = abuse_main(4, arguments);
+    char datadir[] = "-datadir", nosound[] = "-nosound", windowed[] = "-windowed";
+    char *arguments[] = {argv[0], datadir, argv[1], nosound, windowed, nullptr};
+    const int result = abuse_main(5, arguments);
     finished = true; intro.join();
     require(result == 0 && phase == (one_stick ? 102 : 20), "complete actual-engine UI flow");
     SDL_CloseJoystick(virtual_pad); SDL_DetachVirtualJoystick(virtual_id);

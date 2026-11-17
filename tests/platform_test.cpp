@@ -219,6 +219,24 @@ int main(int argc, char **argv)
     SDL_SyncWindow(platform_window());
     require(!(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN) && flags.fullscreen == 0 && game_settings.fullscreen == 0,
             "failed preference write restores window mode and runtime values");
+    set_save_filename_prefix((preferences.string() + "/").c_str());
+    image *original_screen = screen;
+    for (int preset : {1, 2, 3, 0}) {
+        require(platform_set_view_resolution(preset), "change live resolution");
+        require(screen == original_screen && screen->Size().x == view_width(preset) &&
+                screen->Size().y == view_height(preset) && xres == view_width(preset) && yres == view_height(preset),
+                "live resize preserves framebuffer identity and updates dimensions");
+        screen->clear(1); put_image(screen, 0, 0); update_window_done();
+        require(settings_load((preferences / "settings.cfg").string(), reloaded) && reloaded.view_resolution == preset,
+                "live resolution selection persists");
+        float wx, wy;
+        SDL_RenderCoordinatesToWindow(platform_renderer(), xres / 2.0f, yres / 2.0f, &wx, &wy);
+        platform_mouse_position(wx, wy, gx, gy);
+        require(abs(gx - xres / 2) <= 1 && abs(gy - yres / 2) <= 1, "aim remains aligned after live resize");
+    }
+    set_save_filename_prefix((preferences.string() + "/missing/").c_str());
+    require(!platform_set_view_resolution(3) && xres == 320 && yres == 200 && screen == original_screen,
+            "failed resolution save preserves current framebuffer");
     std::filesystem::remove_all(preferences);
     close_graphics();
     SDL_Quit();

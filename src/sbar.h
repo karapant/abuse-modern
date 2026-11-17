@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -35,6 +36,7 @@ class status_bar
   int mouse_in_area();
   public :
   status_bar();
+  void bounds(int &left, int &top, int &right, int &bottom) { area(left, top, right, bottom); }
   void associate(view *V) { v=V; }
   void load();                     // load graphics into cache
   void redraw(image *screen);

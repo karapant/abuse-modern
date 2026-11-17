@@ -64,6 +64,35 @@ bool platform_set_fullscreen(bool enabled)
     return true;
 }
 
+bool platform_set_view_resolution(int preset)
+{
+    if (preset < 0 || preset > 3 || !screen || !renderer) return false;
+    const int width = view_width(preset), height = view_height(preset);
+    SDL_Texture *next = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING, width, height);
+    if (!next) return false;
+    if (!SDL_SetTextureScaleMode(next, SDL_SCALEMODE_NEAREST) ||
+        !SDL_SetTextureBlendMode(next, SDL_BLENDMODE_NONE) ||
+        !SDL_SetRenderLogicalPresentation(renderer, width, height, SDL_LOGICAL_PRESENTATION_LETTERBOX)) {
+        SDL_DestroyTexture(next); return false;
+    }
+    if (!save_setting(Setting::ViewResolution, preset)) {
+        SDL_SetRenderLogicalPresentation(renderer, xres, yres, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+        SDL_DestroyTexture(next); return false;
+    }
+    // Keep the image object stable: window managers and cursor sprites retain its address.
+    screen->m_special->ClearDirties();
+    screen->SetSize(vec2i(width, height));
+    screen->m_special->Resize(vec2i(width, height));
+    screen->clear();
+    xres = width; yres = height;
+    indexed.assign(size_t(width) * height, 0);
+    rgba.assign(indexed.size(), colors[0]);
+    SDL_DestroyTexture(texture); texture = next;
+    screen->AddDirty(0, 0, width, height);
+    return true;
+}
+
 void set_mode(int, int, char **)
 {
     SDL_WindowFlags options = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
@@ -91,8 +120,11 @@ void set_mode(int, int, char **)
     screen->clear();
     SDL_HideCursor();
     SDL_SetWindowMouseGrab(window, flags.grabmouse != 0);
-    printf("Video: SDL3 renderer %s, logical %dx%d, window %dx%d\n",
-           SDL_GetRendererName(renderer), xres, yres, flags.xres, flags.yres);
+    int output_width = 0, output_height = 0;
+    SDL_GetRenderOutputSize(renderer, &output_width, &output_height);
+    printf("Video: SDL3 renderer %s, view %dx%d, output %dx%d (%s)\n",
+           SDL_GetRendererName(renderer), xres, yres, output_width, output_height,
+           flags.fullscreen ? "native fullscreen" : "windowed");
     update_dirty(screen);
 }
 

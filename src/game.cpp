@@ -26,6 +26,7 @@
 
 #include "sdlport/joy.h"
 #include "sdlport/preferences.h"
+#include "sdlport/platform.h"
 
 #include "dev.h"
 #include "game.h"
@@ -194,6 +195,24 @@ int get_option(char const *name)
     return 0;
 }
 
+
+bool Game::set_view_resolution(int preset)
+{
+    if (!platform_set_view_resolution(preset)) return false;
+    delete small_render; small_render = nullptr; small_render_on = 0;
+    recalc_local_view_space();
+    // Menu/title views are separate from player_list.
+    for (view *v = first_view; v; v = v->next) {
+        if (v->local_player()) continue;
+        v->cx1 = 2; v->cy1 = 5;
+        v->cx2 = xres - 2; v->cy2 = yres - (total_weapons ? 33 : 5);
+    }
+    mousex = xres / 2; mousey = yres / 2;
+    wm->set_mouse_position(mousex, mousey);
+    sbar.need_refresh();
+    need_refresh();
+    return true;
+}
 
 void make_screen_size(int w, int h)
 {
@@ -1096,9 +1115,7 @@ void Game::draw_map(view *v, int interpolate)
       } else
       {
     screen->dirt_on();
-    if(xres * yres <= 64000)
-          light_screen(screen, xoff, yoff, white_light, v->ambient);
-    else light_screen(screen, xoff, yoff, white_light, 63);            // no lighting for hi - rez
+    light_screen(screen, xoff, yoff, white_light, v->ambient);
       }
 
     } else

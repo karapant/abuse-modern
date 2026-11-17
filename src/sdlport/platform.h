@@ -9,3 +9,5 @@ void platform_warp_mouse(int game_x, int game_y);
 bool platform_screenshot(const char *path);
 
 bool platform_set_fullscreen(bool enabled);
+
+bool platform_set_view_resolution(int preset);

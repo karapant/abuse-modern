@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -13,6 +14,11 @@
 #endif
 
 #include "common.h"
+#include "ui/hud_skin.h"
+#include "palette.h"
+#include <algorithm>
+#include <array>
+#include <memory>
 
 #include "sbar.h"
 #include "view.h"
@@ -96,77 +102,52 @@ void status_bar::draw_num(image *screen, int x, int y, int num, int *offset)
   scale_put(cache.img(offset[num]),screen,x,y,dw,dh);
 }
 
+// Convert the generated RGB skin to the current level palette only when it changes.
+static image *hud_skin()
+{
+    static std::unique_ptr<image> skin;
+    static std::array<unsigned char, 768> previous{};
+    std::array<unsigned char, 768> current{};
+    for (int i = 0; i < 256; ++i) {
+        current[i * 3] = pal->red(i); current[i * 3 + 1] = pal->green(i); current[i * 3 + 2] = pal->blue(i);
+    }
+    if (!skin || current != previous) {
+        skin.reset(new image(vec2i(hud_width, hud_height)));
+        image_list.unlink(skin.get()); // Owned here; exclude from legacy image_uninit bulk deletion.
+        std::array<int, 65536> mapped; mapped.fill(-1);
+        for (int y = 0; y < hud_height; ++y) for (int x = 0; x < hud_width; ++x) {
+            const auto rgb = hud_pixels[y * hud_width + x];
+            int &color = mapped[rgb];
+            if (color < 0) color = pal->find_closest(((rgb >> 11) & 31) * 255 / 31,
+                ((rgb >> 5) & 63) * 255 / 63, (rgb & 31) * 255 / 31);
+            skin->scan_line(y)[x] = color;
+        }
+        previous = current;
+    }
+    return skin.get();
+}
+
 void status_bar::redraw(image *screen)
 {
-  need_rf=0;
-  if (!v) return ;
-
-  if (total_weapons)
-  {
-    if (!playing_state(the_game->state)) return ;
-
-    image *sb=cache.img(sbar);
-
-    // status bar width & height
-    int sb_w=(small_render ? sb->Size().x*2 : sb->Size().x),
-    sb_h=(small_render ? sb->Size().y*2 : sb->Size().y);
-
-    // status bar x & y position
-    int sx=xres/2-sb_w/2,sy=yres-sb_h;
-
-    // weapon x offset, and x add increment
-    int wx=small_render ? 80 : 40,wa=small_render ? 34*2 : 34;
-
-    // weapon icon width & height
-    int ww=small_render ? cache.img(bweap[0])->Size().x*2 : cache.img(bweap[0])->Size().x;
-    int wh=small_render ? cache.img(bweap[0])->Size().y*2 : cache.img(bweap[0])->Size().y;
-
-
-    // numpad y offset
-    int np_yo=small_render ? 42 : 21;
-    int np_w=small_render ? cache.img(sbar_numpad)->Size().x*2 : cache.img(sbar_numpad)->Size().x;
-    int np_h=small_render ? cache.img(sbar_numpad)->Size().y*2 : cache.img(sbar_numpad)->Size().y;
-
-    // selection bar width * height
-    int sel_w=small_render ? cache.img(sbar_select)->Size().x*2 : cache.img(sbar_select)->Size().x;
-    int sel_h=small_render ? cache.img(sbar_select)->Size().y*2 : cache.img(sbar_select)->Size().y;
-
-    int sel_off=small_render ?  8 : 4;
-    scale_put(sb,screen,sx,sy,sb_w,sb_h);
-
-    if (v->focus)
-      draw_num(screen,sx+(small_render ? 17*2 : 17),sy+(small_render ? 11*2 : 11),v->focus->hp(),bnum);
-
-    int ammo_x,ammo_y;
-    if (small_render)
-    {
-      ammo_x=sx+52*2;
-      ammo_y=sy+25*2;
-    } else { ammo_x=sx+52; ammo_y=sy+25; }
-
-    int i,x_on=sx+wx,t=TOTAL_WEAPONS;
-    if (t>=total_weapons) t=total_weapons;
-    for (i=0; i<t; i++,x_on+=wa,ammo_x+=wa)
-    {
-      if (v->has_weapon(i))
-      {
-    if (v->current_weapon==i)
-        scale_put_trans(cache.img(bweap[i]),screen,x_on,sy,ww,wh);
-    else
-        scale_put_trans(cache.img(dweap[i]),screen,x_on,sy,ww,wh);
-
-    scale_put_trans(cache.img(sbar_numpad),screen,x_on-2,sy+np_yo,np_w,np_h);
-
-    if (v->current_weapon==i)
-          draw_num(screen,ammo_x,ammo_y,v->weapon_total(i),bnum+20);
-    else
-          draw_num(screen,ammo_x,ammo_y,v->weapon_total(i),bnum+10);
-
-    if (i==icon_in_selection)
-        scale_put_trans(cache.img(sbar_select),screen,x_on+sel_off,sy,sel_w,sel_h);
-      }
+    need_rf = 0;
+    if (!v || !total_weapons || !playing_state(the_game->state)) return;
+    int sx, sy, right, bottom; area(sx, sy, right, bottom);
+    const int scale = small_render ? 2 : 1;
+    scale_put(hud_skin(), screen, sx, sy, hud_width * scale, hud_height * scale);
+    draw_health(screen, v->focus ? v->focus->hp() : 0);
+    const int accent = pal->find_closest(240, 169, 66), muted = pal->find_closest(62, 68, 73);
+    for (int i = 0; i < std::min(TOTAL_WEAPONS, total_weapons); ++i) {
+        const int left = sx + (hud_health_width + i * hud_slot_width) * scale;
+        if (!v->has_weapon(i)) {
+            screen->bar(left + 4 * scale, sy + 8 * scale, left + 32 * scale, sy + 29 * scale, pal->find_closest(13, 16, 19));
+            screen->line(left + 16 * scale, sy + 18 * scale, left + 24 * scale, sy + 18 * scale, muted);
+        } else {
+            draw_ammo(screen, i, std::clamp(v->weapon_total(i), 0, 999), v->current_weapon == i);
+        }
+        if (v->current_weapon == i || icon_in_selection == i)
+            screen->rectangle(left + scale, sy + scale, left + (hud_slot_width - 2) * scale, bottom - 2 * scale,
+                v->current_weapon == i ? accent : muted);
     }
-  }
 }
 
 void status_bar::area(int &x1, int &y1, int &x2, int &y2)
@@ -180,16 +161,12 @@ void status_bar::area(int &x1, int &y1, int &x2, int &y2)
     return ;
   }
 
-  image *sb=cache.img(sbar);
-
-  // status bar width & height
-  int sb_w=sb->Size().x,
-      sb_h=sb->Size().y;
+  int sb_w=hud_width, sb_h=hud_height;
 
   if (small_render) { sb_w*=2; sb_h*=2; }
 
-  x1=xres/2-sb_w/2;
-  x2=xres/2+sb_w/2;
+  x1=(xres-sb_w)/2;
+  x2=x1+sb_w;
   y1=yres-sb_h;
   y2=yres;
 }
@@ -201,20 +178,26 @@ void status_bar::draw_health(image *screen,int amount)
   {
     int x1,y1,x2,y2;
     area(x1,y1,x2,y2);
-    draw_num(screen,x1+(small_render ? 17*2 : 17),y1+(small_render ? 11*2 : 11),amount,bnum);
+    const int scale = small_render ? 2 : 1;
+    draw_num(screen, x1 + 9 * scale, y1 + 32 * scale, std::clamp(amount, 0, 999), bnum);
+    const int dark = pal->find_closest(35, 18, 18), red = pal->find_closest(220, 42, 38);
+    screen->bar(x1 + 6 * scale, y1 + 43 * scale, x1 + 25 * scale, y1 + 44 * scale, dark);
+    const int filled = std::clamp(amount, 0, 100) * 20 / 100;
+    if (filled) screen->bar(x1 + 6 * scale, y1 + 43 * scale, x1 + (6 + filled) * scale - 1, y1 + 44 * scale, red);
   }
 }
 
 
 void status_bar::draw_ammo(image *screen, int weapon_num, int amount, int light)
 {
+  if (weapon_num < 0 || weapon_num >= std::min(hud_weapon_count, total_weapons)) return;
   if (total_weapons)
   {
     int x1,y1,x2,y2;
     area(x1,y1,x2,y2);
     draw_num(screen,
-        x1+(small_render ? 52*2+weapon_num*34*2 : 52+weapon_num*34),
-        y1+(small_render ? 25*2 : 25),amount,bnum+(light ? 20 : 10));
+        x1 + (hud_health_width + 10 + weapon_num * hud_slot_width) * (small_render ? 2 : 1),
+        y1 + 32 * (small_render ? 2 : 1), std::clamp(amount, 0, 999), bnum+(light ? 20 : 10));
   }
 }
 
@@ -313,11 +296,11 @@ void status_bar::step()
     if (small_render) mx/=2;
 
 
-    mx-=47;
+    mx-=hud_health_width;
     if (mx<0) new_target=0;
     else
     {
-      new_target=mx/33;
+      new_target=mx/hud_slot_width;
       if (new_target>=TOTAL_WEAPONS)
         new_target=TOTAL_WEAPONS-1;
       if (new_target>=total_weapons)

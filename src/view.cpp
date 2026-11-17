@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "game.h"
+#include "sbar.h"
 
 #include "view.h"
 #include "lisp.h"
@@ -757,8 +758,11 @@ void recalc_local_view_space()   // calculates view areas for local players, sho
     int Xres=small_render ? xres/2 : xres;
     int Yres=small_render ? yres/2 : yres;
 
+    int hud_left, hud_top, hud_right, hud_bottom;
+    sbar.bounds(hud_left, hud_top, hud_right, hud_bottom);
+    const int hud_space = total_weapons ? (yres - hud_top) / (small_render ? 2 : 1) + 2 : 0;
     int h=Yres/t;
-    int w=h*320/200,y=5;
+    int w=Xres,y=5; // Use the full framebuffer width, including widescreen views.
     if (w<300) w=300;
 
     for (view *f=player_list; f; f=f->next)
@@ -771,7 +775,7 @@ void recalc_local_view_space()   // calculates view areas for local players, sho
     if (f->suggest.cx2>Xres-2) f->suggest.cx2=Xres-2;
 
     f->suggest.cy1=y;
-    f->suggest.cy2=h-(total_weapons ? 33 : 0);
+    f->suggest.cy2=h-hud_space;
 
     f->suggest.shift_down=f->shift_down;
     f->suggest.shift_right=f->shift_right;
