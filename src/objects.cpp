@@ -25,7 +25,6 @@
 #include "lisp.h"
 #include "jrand.h"
 #include "light.h"
-#include "sdlport/preferences.h"
 #include <algorithm>
 #include <cstring>
 #include "dprint.h"
@@ -621,14 +620,14 @@ int32_t game_object::x_center()
 }
 
 
-static void collect_projectile_light(game_object &object)
+void game_object::collect_projectile_light(int32_t draw_x, int32_t draw_y)
 {
-    const char *name = object_names[object.otype];
+    const char *name = object_names[otype];
     if (!strcmp(name, "ROCKET") || !strcmp(name, "STRAIT_ROCKET")) {
-        const int center_y = object.y - object.picture()->Size().y / 2;
-        const int exhaust_x = object.x - std::clamp(object.xvel(), -16, 16);
-        const int exhaust_y = center_y - std::clamp(object.yvel(), -16, 16);
-        add_projectile_light(ProjectileGlow::Rocket, object.x, center_y, exhaust_x, exhaust_y);
+        const int center_y = draw_y - picture()->Size().y / 2;
+        const int exhaust_x = draw_x - std::clamp(xvel(), -16, 16);
+        const int exhaust_y = center_y - std::clamp(yvel(), -16, 16);
+        add_projectile_light(ProjectileGlow::Rocket, draw_x, center_y, exhaust_x, exhaust_y);
         return;
     }
 
@@ -639,22 +638,20 @@ static void collect_projectile_light(game_object &object)
     else return;
 
     // Use the same endpoints as the stock beam draw functions.
-    const auto *type = figures[object.otype];
+    const auto *type = figures[otype];
     const int *trail_x = nullptr, *trail_y = nullptr;
     for (int i = 0; i < type->tiv; ++i) {
         if (!type->vars[i]) continue;
         const char *var = lstring_value(static_cast<LSymbol *>(type->vars[i])->GetName());
-        if (!strcmp(var, "sgb_lastx")) trail_x = &object.lvars[type->var_index[i]];
-        if (!strcmp(var, "sgb_lasty")) trail_y = &object.lvars[type->var_index[i]];
+        if (!strcmp(var, "sgb_lastx")) trail_x = &lvars[type->var_index[i]];
+        if (!strcmp(var, "sgb_lasty")) trail_y = &lvars[type->var_index[i]];
     }
     if (trail_x && trail_y)
-        add_projectile_light(glow, object.x, object.y, *trail_x, *trail_y);
+        add_projectile_light(glow, draw_x, draw_y, *trail_x, *trail_y);
 }
 
 void game_object::draw()
 {
-  if (game_settings.enhanced_lighting && (dev & DRAW_LIGHTS) && !(dev & MAP_MODE))
-    collect_projectile_light(*this);
   if (figures[otype]->get_fun(OFUN_DRAW))
   {
     current_object=this;

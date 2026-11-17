@@ -138,7 +138,7 @@ static void check_environment_lights()
     delete_light(directional);
     delete_light(round);
 }
-static void check_projectile_lights(view *v)
+static void check_projectile_lights()
 {
     const auto create_projectile = [](const char *name) {
         int type = 0;
@@ -147,14 +147,14 @@ static void check_projectile_lights(view *v)
         return create(type, 20090, 20064, 0);
     };
     image test(vec2i(160, 128), nullptr, 2);
-    const int gray = pal->find_closest(64, 64, 64);
+    image surfaces(test.Size(), nullptr, 2);
+    const int gray = pal->find_closest(124, 124, 124);
+    const int black = pal->find_closest(0, 0, 0);
     const auto render = [&] {
         test.clear(gray);
-        enhanced_light_screen(&test, 20000, 20000, white_light, 63, *pal, current_level->tick_counter());
+        test.scan_line(70)[62] = black;
+        reflect_projectile_lights(test, surfaces, 20000, 20000, *pal);
     };
-    auto *previous_object = current_object;
-    auto *previous_view = current_view;
-    current_view = v;
     auto *laser = create_projectile("SHOTGUN_BULLET");
     const auto *type = figures[laser->otype];
     for (int i = 0; i < type->tiv; ++i) {
@@ -163,39 +163,39 @@ static void check_projectile_lights(view *v)
         if (!strcmp(name, "sgb_lastx")) laser->lvars[type->var_index[i]] = 20030;
         if (!strcmp(name, "sgb_lasty")) laser->lvars[type->var_index[i]] = 20064;
     }
+    surfaces.clear(NoReflection);
+    surfaces.bar(55, 70, 64, 96, WallReflection);
+    surfaces.bar(65, 70, 75, 96, BackgroundReflection);
     clear_projectile_lights();
-    laser->draw();
+    laser->collect_projectile_light(laser->x, laser->y);
     render();
     const int red = test.Pixel(vec2i(60, 70));
+    const int background = test.Pixel(vec2i(70, 70));
     require(pal->red(red) > pal->green(red) && pal->red(red) > pal->red(gray),
-            "starter laser casts red light along the beam and onto nearby pixels");
-    require(test.Pixel(vec2i(60, 92)) == gray, "laser light fades away from the beam");
+            "starter laser casts red light onto a nearby wall");
+    require(pal->red(background) < pal->red(red), "background reflection is weaker than wall reflection");
+    require(test.Pixel(vec2i(60, 64)) == gray && test.Pixel(vec2i(62, 70)) == black &&
+            test.Pixel(vec2i(60, 96)) == gray,
+            "open space and black pixels stay dark and the light fades away from the beam");
     clear_projectile_lights();
-    game_settings.enhanced_lighting = 0;
-    laser->draw();
-    render();
-    require(test.Pixel(vec2i(60, 70)) == gray, "classic lighting skips projectile glows");
-    game_settings.enhanced_lighting = 1;
     delete laser;
 
     auto *rocket = create_projectile("ROCKET");
     rocket->set_xvel(12);
-    rocket->draw();
+    surfaces.clear(WallReflection);
+    rocket->collect_projectile_light(rocket->x, rocket->y);
     render();
     const int rocket_y = 64 - rocket->picture()->Size().y / 2;
     const int amber = test.Pixel(vec2i(78, rocket_y));
-    require(pal->red(amber) > pal->red(gray) && pal->green(amber) > pal->green(red) &&
-            pal->green(amber) > pal->blue(amber), "rocket exhaust casts amber light");
+    require(pal->red(amber) > pal->red(gray) && pal->green(amber) > pal->blue(amber),
+            "rocket exhaust casts amber light on walls");
     clear_projectile_lights();
-    rocket->x += 65;
-    rocket->draw();
+    rocket->collect_projectile_light(rocket->x + 65, rocket->y);
     render();
     require(test.Pixel(vec2i(78, rocket_y)) == gray && test.Pixel(vec2i(145, rocket_y)) != gray,
-            "rocket light follows the projectile without a stale glow");
+            "rocket reflection follows the rendered position without a stale glow");
     delete rocket;
     clear_projectile_lights();
-    current_object = previous_object;
-    current_view = previous_view;
 }
 static void check_wheel(view *v)
 {
@@ -405,7 +405,7 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
             for (int i = 0; i < total_weapons; ++i) v->weapons[i] = ammo[i];
         }
         check_explosion_effect();
-        check_projectile_lights(v);
+        check_projectile_lights();
         check_environment_lights();
         check_wheel(v);
         int x, y, b1, b2, b3, b4;

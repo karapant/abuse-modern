@@ -76,6 +76,9 @@ light_patch *find_patch(int screenx, int screeny, light_patch *list);
 int calc_light_value(int32_t x, int32_t y, light_patch *which);
 enum class ProjectileGlow { Laser, Plasma, Saber, Rocket };
 void clear_projectile_lights();
+bool has_projectile_lights();
+enum ProjectileSurface : uint8_t { NoReflection, BackgroundReflection, WallReflection };
+void reflect_projectile_lights(image &target, image &surfaces, int world_x, int world_y, palette &colors);
 void add_projectile_light(ProjectileGlow glow, int x1, int y1, int x2, int y2);
 void add_explosion_effect(int x, int y, int radius, uint32_t tick);
 void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *lookup,

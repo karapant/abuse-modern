@@ -71,6 +71,7 @@ public :
   int hurtable() { return figures[otype]->get_cflag(CFLAG_HURTABLE); }
   int pushable() { return figures[otype]->get_cflag(CFLAG_PUSHABLE); }
 
+  void collect_projectile_light(int32_t draw_x, int32_t draw_y);
   void draw();
   void map_draw();
   void draw_trans(int count, int max);

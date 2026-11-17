@@ -14,6 +14,7 @@
 #endif
 
 #include <ctype.h>
+#include <memory>
 #include <setjmp.h>
 #include <unistd.h>
 
@@ -810,6 +811,23 @@ void Game::draw_map(view *v, int interpolate)
 
   screen->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
 
+  clear_projectile_lights();
+  std::unique_ptr<image> reflective_surfaces;
+  if (game_settings.enhanced_lighting && (dev & DRAW_LIGHTS) &&
+      (dev & DRAW_PEOPLE_LAYER) && !(dev & MAP_MODE)) {
+    for (auto *object = current_level->first_active_object(); object; object = object->next_active) {
+      const int draw_x = interpolate ? (object->last_x + object->x) / 2 : object->x;
+      const int draw_y = interpolate ? (object->last_y + object->y) / 2 : object->y;
+      object->collect_projectile_light(draw_x, draw_y);
+    }
+    if (has_projectile_lights()) {
+      reflective_surfaces = std::make_unique<image>(screen->Size(), nullptr, 1);
+      reflective_surfaces->dirt_off();
+      reflective_surfaces->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
+      reflective_surfaces->clear(dev & DRAW_BG_LAYER ? BackgroundReflection : NoReflection);
+    }
+  }
+
   nxoff = xoff * bg_xmul / bg_xdiv;
   nyoff = yoff * bg_ymul / bg_ydiv;
 
@@ -973,6 +991,8 @@ void Game::draw_map(view *v, int interpolate)
           if(fort_num != BLACK)
           {
             get_fg(fort_num)->im->PutImage(screen, vec2i(draw_x, draw_y));
+            if (reflective_surfaces)
+              get_fg(fort_num)->im->PutColor(reflective_surfaces.get(), vec2i(draw_x, draw_y), WallReflection);
 
         if(!(dev & EDIT_MODE))
             *cl|=0x8000;      // mark as has - been - seen
@@ -984,8 +1004,10 @@ void Game::draw_map(view *v, int interpolate)
     }
   }
 
+  if (reflective_surfaces)
+    reflect_projectile_lights(*screen, *reflective_surfaces, xoff, yoff, *pal);
+
   int32_t ro = rand_on;
-  clear_projectile_lights();
   if(dev & DRAW_PEOPLE_LAYER)
   {
     if(interpolate)
@@ -1004,6 +1026,7 @@ void Game::draw_map(view *v, int interpolate)
 
     if(dev & DRAW_FG_LAYER && rescan)
     {
+      if (reflective_surfaces) reflective_surfaces->clear(NoReflection);
       for(y = y1, draw_y = yo; y <= y2; y++, draw_y += yinc)
       {
     uint16_t *cl = current_level->get_fgline(y)+x1;
@@ -1018,6 +1041,8 @@ void Game::draw_map(view *v, int interpolate)
           get_fg(fort_num)->im->PutImage(screen, vec2i(draw_x, draw_y));
           else
           get_fg(fort_num)->im->PutFilled(screen, vec2i(draw_x, draw_y), 0);
+          if (reflective_surfaces)
+            get_fg(fort_num)->im->PutColor(reflective_surfaces.get(), vec2i(draw_x, draw_y), WallReflection);
 
           if(!(dev & EDIT_MODE))
           current_level->mark_seen(x, y);
@@ -1032,6 +1057,9 @@ void Game::draw_map(view *v, int interpolate)
       }
     }
 
+
+    if (reflective_surfaces && (dev & DRAW_FG_LAYER) && rescan)
+      reflect_projectile_lights(*screen, *reflective_surfaces, xoff, yoff, *pal);
 
     if(dev & DRAW_FG_BOUND_LAYER)
     {

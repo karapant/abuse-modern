@@ -74,7 +74,7 @@ characters. **Window scale** changes window size. Under **Settings → Enhanceme
 Enhanced Lighting gives round lights a warm tint and directional lights a cool
 tint. It smooths light falloff and adds colored flashes, sparks and
 smoke to explosions that use the game's flash effect. Lasers, plasma and rockets
-light nearby surfaces as they travel. Launches start in native
+cast subtle reflections on nearby walls as they travel. Launches start in native
 fullscreen; use `-windowed` to start windowed. New configurations use a 480×300
 view. Use `-view 640x360` for a temporary override.
 Command-line options override saved settings for that launch. Saves/settings normally live in

@@ -789,6 +789,77 @@ inline void put_8line(uint8_t *in_line, uint8_t *out_line, uint8_t *remap, uint8
 }
 
 
+bool has_projectile_lights()
+{
+    return light_detail != POOR_DETAIL && !projectile_lights.empty();
+}
+
+void reflect_projectile_lights(image &target, image &surfaces, int world_x, int world_y, palette &colors)
+{
+    if (!has_projectile_lights()) return;
+    int left, top, right, bottom;
+    target.GetClip(left, top, right, bottom);
+
+    static std::array<std::array<std::array<uint8_t, 256>, 8>, 4> projectile_blends;
+    static std::array<uint8_t, 768> previous{};
+    static bool ready = false;
+    std::array<uint8_t, 768> current{};
+    for (int i = 0; i < 256; ++i) {
+        current[i * 3] = colors.red(i);
+        current[i * 3 + 1] = colors.green(i);
+        current[i * 3 + 2] = colors.blue(i);
+    }
+    if (!ready || current != previous) {
+        constexpr int hues[][3] = {{16, 2, 2}, {10, 3, 13}, {4, 8, 15}, {15, 7, 1}};
+        for (size_t glow = 0; glow < projectile_blends.size(); ++glow) {
+            const auto &hue = hues[glow];
+            for (int strength = 1; strength <= 7; ++strength) {
+                for (int i = 0; i < 256; ++i) {
+                    const int r = colors.red(i), g = colors.green(i), b = colors.blue(i);
+                    // Reflect off visible texture. Black void cannot carry a glow.
+                    const int response = (r + 2 * g + b) / 4;
+                    projectile_blends[glow][strength][i] = colors.find_closest(
+                        std::min(255, r + hue[0] * strength * response / 200),
+                        std::min(255, g + hue[1] * strength * response / 200),
+                        std::min(255, b + hue[2] * strength * response / 200));
+                }
+            }
+        }
+        previous = current;
+        ready = true;
+    }
+
+    for (const auto &light : projectile_lights) {
+        const int x1 = left + light.x1 - world_x, y1 = top + light.y1 - world_y;
+        const int x2 = left + light.x2 - world_x, y2 = top + light.y2 - world_y;
+        const int radius = light.glow == ProjectileGlow::Rocket ? 34 : 23;
+        const int min_x = std::max(left, std::min(x1, x2) - radius);
+        const int max_x = std::min(right, std::max(x1, x2) + radius + 1);
+        const int min_y = std::max(top, std::min(y1, y2) - radius);
+        const int max_y = std::min(bottom, std::max(y1, y2) + radius + 1);
+        if (min_x >= max_x || min_y >= max_y) continue;
+        const float dx = float(x2) - x1, dy = float(y2) - y1;
+        const float length_squared = dx * dx + dy * dy;
+        const auto &table = projectile_blends[size_t(light.glow)];
+        for (int y = min_y; y < max_y; ++y) {
+            auto *row = target.scan_line(y);
+            const auto *surface = surfaces.scan_line(y);
+            for (int x = min_x; x < max_x; ++x) {
+                if (!surface[x]) continue;
+                const float px = float(x) - x1, py = float(y) - y1;
+                const float t = length_squared > 0 ? std::clamp((px * dx + py * dy) / length_squared, 0.f, 1.f) : 0.f;
+                const float near_x = px - t * dx, near_y = py - t * dy;
+                const float falloff = 1.f - (near_x * near_x + near_y * near_y) / (radius * radius);
+                if (falloff > 0) {
+                    const int peak = surface[x] == WallReflection ? 7 : 2;
+                    const int strength = int(peak * falloff * falloff + 0.5f);
+                    if (strength) row[x] = table[strength][row[x]];
+                }
+            }
+        }
+    }
+}
+
 // Paint into the indexed world image so scrolling, clipping and palette fades
 // also apply to the effects. No simulation objects or random calls are needed.
 void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *lookup,
@@ -803,8 +874,6 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
     // Cache palette blends. The flash adds warm light while smoke softens the background.
     using BlendTable = std::array<std::array<uint8_t, 256>, 8>;
     static BlendTable warm, smoke, warm_fixture, cool_fixture;
-    static std::array<BlendTable, 4> projectile_blends;
-    constexpr int projectile_colors[][3] = {{23, 2, 3}, {15, 5, 19}, {7, 12, 22}, {20, 10, 2}};
     static std::array<uint8_t, 768> previous_palette{};
     static bool palette_ready = false;
     const auto prepare_blends = [&] {
@@ -820,12 +889,6 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
                 const int r = colors.red(i), g = colors.green(i), b = colors.blue(i);
                 warm[strength][i] = colors.find_closest(std::min(255, r + strength * 12),
                     std::min(255, g + strength * 5), std::min(255, b + strength));
-                for (size_t glow = 0; glow < projectile_blends.size(); ++glow) {
-                    const auto &rgb = projectile_colors[glow];
-                    projectile_blends[glow][strength][i] = colors.find_closest(
-                        std::min(255, r + strength * rgb[0]), std::min(255, g + strength * rgb[1]),
-                        std::min(255, b + strength * rgb[2]));
-                }
                 // Shift the lit surface's colors in proportion to its brightness.
                 // Black stays black, and the level's brightness lookup still does the shading.
                 warm_fixture[strength][i] = colors.find_closest(std::min(255, r + r * strength / 23),
@@ -894,36 +957,6 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
         }
     }
 
-    for (const auto &light : projectile_lights) {
-        const int x1 = left + light.x1 - world_x, y1 = top + light.y1 - world_y;
-        const int x2 = left + light.x2 - world_x, y2 = top + light.y2 - world_y;
-        const int radius = light.glow == ProjectileGlow::Rocket ? 34 : 23;
-        const int min_x = std::max(left, std::min(x1, x2) - radius);
-        const int max_x = std::min(right, std::max(x1, x2) + radius + 1);
-        const int min_y = std::max(top, std::min(y1, y2) - radius);
-        const int max_y = std::min(bottom, std::max(y1, y2) + radius + 1);
-        if (min_x >= max_x || min_y >= max_y) continue;
-        if (!blends_ready) {
-            prepare_blends();
-            blends_ready = true;
-        }
-        const float dx = float(x2) - x1, dy = float(y2) - y1;
-        const float length_squared = dx * dx + dy * dy;
-        const auto &table = projectile_blends[size_t(light.glow)];
-        for (int y = min_y; y < max_y; ++y) {
-            auto *row = target->scan_line(y);
-            for (int x = min_x; x < max_x; ++x) {
-                const float px = float(x) - x1, py = float(y) - y1;
-                const float t = length_squared > 0 ? std::clamp((px * dx + py * dy) / length_squared, 0.f, 1.f) : 0.f;
-                const float near_x = px - t * dx, near_y = py - t * dy;
-                const float falloff = 1.f - (near_x * near_x + near_y * near_y) / (radius * radius);
-                if (falloff > 0) {
-                    const int strength = int(7 * falloff + 0.5f);
-                    if (strength) row[x] = table[strength][row[x]];
-                }
-            }
-        }
-    }
     for (const auto &burst : explosions) {
         const unsigned age = tick - burst.start;
         if (!burst.radius || age >= explosion_lifetime) continue;
