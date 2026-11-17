@@ -985,6 +985,7 @@ void Game::draw_map(view *v, int interpolate)
   }
 
   int32_t ro = rand_on;
+  clear_projectile_lights();
   if(dev & DRAW_PEOPLE_LAYER)
   {
     if(interpolate)

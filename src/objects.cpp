@@ -1,3 +1,4 @@
+// Modified for Abuse Modern. Modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -24,6 +25,9 @@
 #include "lisp.h"
 #include "jrand.h"
 #include "light.h"
+#include "sdlport/preferences.h"
+#include <algorithm>
+#include <cstring>
 #include "dprint.h"
 #include "clisp.h"
 #include "lisp_gc.h"
@@ -617,8 +621,40 @@ int32_t game_object::x_center()
 }
 
 
+static void collect_projectile_light(game_object &object)
+{
+    const char *name = object_names[object.otype];
+    if (!strcmp(name, "ROCKET") || !strcmp(name, "STRAIT_ROCKET")) {
+        const int center_y = object.y - object.picture()->Size().y / 2;
+        const int exhaust_x = object.x - std::clamp(object.xvel(), -16, 16);
+        const int exhaust_y = center_y - std::clamp(object.yvel(), -16, 16);
+        add_projectile_light(ProjectileGlow::Rocket, object.x, center_y, exhaust_x, exhaust_y);
+        return;
+    }
+
+    ProjectileGlow glow;
+    if (!strcmp(name, "SHOTGUN_BULLET")) glow = ProjectileGlow::Laser;
+    else if (!strcmp(name, "PLASMAGUN_BULLET")) glow = ProjectileGlow::Plasma;
+    else if (!strcmp(name, "LSABER_BULLET")) glow = ProjectileGlow::Saber;
+    else return;
+
+    // Use the same endpoints as the stock beam draw functions.
+    const auto *type = figures[object.otype];
+    const int *trail_x = nullptr, *trail_y = nullptr;
+    for (int i = 0; i < type->tiv; ++i) {
+        if (!type->vars[i]) continue;
+        const char *var = lstring_value(static_cast<LSymbol *>(type->vars[i])->GetName());
+        if (!strcmp(var, "sgb_lastx")) trail_x = &object.lvars[type->var_index[i]];
+        if (!strcmp(var, "sgb_lasty")) trail_y = &object.lvars[type->var_index[i]];
+    }
+    if (trail_x && trail_y)
+        add_projectile_light(glow, object.x, object.y, *trail_x, *trail_y);
+}
+
 void game_object::draw()
 {
+  if (game_settings.enhanced_lighting && (dev & DRAW_LIGHTS) && !(dev & MAP_MODE))
+    collect_projectile_light(*this);
   if (figures[otype]->get_fun(OFUN_DRAW))
   {
     current_object=this;

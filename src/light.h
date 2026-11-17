@@ -73,6 +73,9 @@ void read_lights(spec_directory *sd, bFILE *fp, char const *level_name);
 void delete_patch_list(light_patch *first);
 light_patch *find_patch(int screenx, int screeny, light_patch *list);
 int calc_light_value(int32_t x, int32_t y, light_patch *which);
+enum class ProjectileGlow { Laser, Plasma, Saber, Rocket };
+void clear_projectile_lights();
+void add_projectile_light(ProjectileGlow glow, int x1, int y1, int x2, int y2);
 void add_explosion_effect(int x, int y, int radius, uint32_t tick);
 void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *lookup,
                            int ambient, palette &colors, uint32_t tick);
