@@ -17,7 +17,7 @@ SDL development dependencies are required. On Ubuntu, for example:
 ```sh
 sudo apt install build-essential cmake git pkg-config \
   libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
-  libxfixes-dev libxss-dev libasound2-dev libpulse-dev libgl-dev
+  libxfixes-dev libxss-dev libxtst-dev libasound2-dev libpulse-dev libgl-dev
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
