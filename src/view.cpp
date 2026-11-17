@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -15,6 +16,8 @@
 #include <unistd.h>
 
 #include "common.h"
+#include "sdlport/controller.h"
+#include <algorithm>
 
 #include "game.h"
 
@@ -384,6 +387,15 @@ void view::get_input()
         if( focus )
         {
             the_game->mouse_to_game( last_demo_mx, last_demo_my, sug_px, sug_py, this );
+            const auto pad = controller_state();
+            if (pad.aim) {
+                sug_px = focus->x + int(pad.aim_x * 75);
+                sug_py = focus->y + int(pad.aim_y * 75);
+                int32_t mx, my;
+                the_game->game_to_mouse(sug_px, sug_py, this, mx, my);
+                wm->eh->mouse->update(std::clamp(int(mx), 0, xres - 1),
+                                      std::clamp(int(my), 0, yres - 1), last_demo_mbut);
+            }
             if( last_demo_mbut & 1 )
                 sug_b2 = 1;
             if( last_demo_mbut & 2 )

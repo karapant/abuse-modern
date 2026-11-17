@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -40,10 +41,9 @@ public:
         stack.push((void **)&ref);
     }
 
-    template<typename T> inline PtrRef(T * const &ref)
-    {
-        stack.push((void **)&ref);
-    }
+    // A temporary pointer (notably `this`) dies at the end of the statement.
+    // The collector must only register a mutable pointer with a real scope.
+    template<typename T> PtrRef(T * const &ref) = delete;
 
     inline ~PtrRef()
     {

@@ -20,6 +20,7 @@ void Game::show_help(const char *) {}
 int get_key_binding(const char *name, int) { return !strcmp(name, "b4") ? JK_INSERT : JK_CTRL_R; }
 
 flags_struct flags = {};
+keys_struct keys = {};
 extern int xres, yres;
 static void require(bool ok, const char *message)
 {
@@ -115,9 +116,9 @@ int main(int argc, char **argv)
         input.wheel.y = 1;
         require(SDL_PushEvent(&input), "push wheel");
         ev = next();
-        require(ev.type == EV_KEY && ev.key == JK_INSERT, "wheel presses weapon key");
+        require(ev.type == EV_KEY && ev.key == JK_UP, "wheel navigates menu up");
         ev = next();
-        require(ev.type == EV_KEYRELEASE && ev.key == JK_INSERT, "wheel releases weapon key");
+        require(ev.type == EV_KEYRELEASE && ev.key == JK_UP, "wheel releases menu key");
         input = {};
         input.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
         input.button.button = SDL_BUTTON_MIDDLE;
@@ -185,6 +186,20 @@ int main(int argc, char **argv)
         put_image(screen, 0, 0);
         update_window_done();
         require(platform_screenshot("settings-preview.bmp"), "save settings preview");
+        menu.items.clear();
+        for (int i = 1; i <= 15; ++i) menu.items.push_back({i, "Slot " + std::to_string(i), "Saved"});
+        menu.items.push_back({100, "Back", ""});
+        menu.selected = 0;
+        key.key = JK_END; menu.handle(key);
+        menu.draw(*screen, font, *menu_palette, "ABUSE MODERN", "LOAD GAME", "ARROWS / MOUSE   ENTER TO SELECT");
+        require(menu.selected == 15 && menu.first_visible == 9, "long slot lists scroll to Back without drawing over footer");
+        click.mouse_move = {40, 52};
+        require(menu.handle(click).id == 10, "scrolled mouse hitbox addresses visible slot ten");
+        key.key = JK_HOME; menu.handle(key);
+        menu.draw(*screen, font, *menu_palette, "ABUSE MODERN", "LOAD GAME", "ARROWS / MOUSE   ENTER TO SELECT");
+        require(menu.selected == 0 && menu.first_visible == 0, "Home restores first page");
+        key.key = JK_PAGEDOWN; menu.handle(key);
+        require(menu.selected == 7, "page navigation advances a visible page");
     }
     close_graphics();
     SDL_Quit();

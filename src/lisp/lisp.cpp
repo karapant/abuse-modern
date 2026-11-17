@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -1561,6 +1562,9 @@ void *mapcar(void *arg_list)
 
   if (stop)
   {
+    // Each evaluated argument was registered as a GC root. Remove those
+    // registrations before freeing their storage on the empty-list path too.
+    PtrRef::stack.m_size = old_ptr_son;
     free(arg_on);
     return NULL;
   }
@@ -3061,7 +3065,8 @@ LObject *LSymbol::EvalUserFunction(LList *arg_list)
 /* PtrRef check: OK */
 LObject *LObject::Eval()
 {
-    PtrRef ref1(this);
+    LObject *self = this;
+    PtrRef ref1(self);
 
     int tstart = trace_level;
 
@@ -3072,7 +3077,7 @@ LObject *LObject::Eval()
             dprintf("%d (%d, %d, %d) TRACE : ", trace_level,
                     get_free_size(PERM_SPACE), get_free_size(TMP_SPACE),
                     PtrRef::stack.m_size);
-            Print();
+            self->Print();
             dprintf("\n");
         }
         trace_level++;
@@ -3080,9 +3085,9 @@ LObject *LObject::Eval()
 
     LObject *ret = NULL;
 
-    if (this)
+    if (self)
     {
-        switch (item_type(this))
+        switch (item_type(self))
         {
         case L_BAD_CELL:
             lbreak("error: eval on a bad cell\n");
@@ -3093,20 +3098,20 @@ LObject *LObject::Eval()
         case L_NUMBER:
         case L_POINTER:
         case L_FIXED_POINT:
-            ret = this;
+            ret = self;
             break;
         case L_SYMBOL:
-            if (this == true_symbol)
-                ret = this;
+            if (self == true_symbol)
+                ret = self;
             else
             {
-                ret = ((LSymbol *)this)->GetValue();
+                ret = ((LSymbol *)self)->GetValue();
                 if (item_type(ret) == L_OBJECT_VAR)
                     ret = (LObject *)l_obj_get(((LObjectVar *)ret)->index);
             }
             break;
         case L_CONS_CELL:
-            ret = ((LSymbol *)CAR(this))->EvalFunction(CDR(this));
+            ret = ((LSymbol *)CAR(self))->EvalFunction(CDR(self));
             break;
         default :
             fprintf(stderr, "shouldn't happen\n");

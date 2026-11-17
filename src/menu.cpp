@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -16,6 +17,10 @@
 #include <algorithm>
 #include <string>
 #include "ui/textmenu.h"
+#include "ui/textentry.h"
+#include "sdlport/controls.h"
+#include "sdlport/controller.h"
+#include "configuration.h"
 #include "sdlport/platform.h"
 
 #include "common.h"
@@ -658,15 +663,61 @@ ico_button *make_conditional_buttons(int x,int &y)
   return start_list;
 }
 
-static TextMenuAction run_text_menu(TextMenu &menu, const char *section, const char *hint)
+TextMenuAction run_text_menu(TextMenu &menu, const char *section, const char *hint)
 {
+    ControllerMenuScope controller_menu;
     for (;;) {
+        if (controller_take_warning())
+            text_notice("GAMEPAD WARNING", "This controller does not report two sticks. Controller gameplay is disabled because movement and aiming need separate sticks. Use keyboard and mouse, or connect a dual-stick controller. Menu navigation still works.");
         menu.draw(*screen, *big_font, *pal, "ABUSE MODERN", section, hint);
         wm->flush_screen();
         event ev;
         wm->get_event(ev);
         TextMenuAction action = menu.handle(ev);
         if (action.id) return action;
+    }
+}
+
+void text_notice(const char *title, const std::string &message)
+{
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start < message.size()) {
+        size_t end = std::min(start + 37, message.size());
+        if (end < message.size()) { auto space = message.rfind(' ', end); if (space > start && space != std::string::npos) end = space; }
+        lines.push_back(message.substr(start, end - start));
+        start = end; while (start < message.size() && message[start] == ' ') ++start;
+    }
+    int page = 0;
+    for (;;) {
+        TextMenu menu;
+        for (int i = page * 5; i < std::min(int(lines.size()), page * 5 + 5); ++i)
+            menu.items.push_back({0, lines[i], "", false});
+        if (page) menu.items.push_back({2, "Previous page", ""});
+        menu.items.push_back({1, (page + 1) * 5 < int(lines.size()) ? "Next page" : "OK", ""});
+        menu.selected = int(menu.items.size()) - 1;
+        auto action = run_text_menu(menu, title, "ENTER CONTINUES   ESC CLOSES");
+        if (action.id == -1) return;
+        if (action.id == 2) --page;
+        else if ((page + 1) * 5 < int(lines.size())) ++page;
+        else return;
+    }
+}
+
+bool text_entry(const char *title, const char *label, std::string &value, size_t maximum)
+{
+    ControllerMenuScope controller_menu;
+    TextEntry entry(value, maximum);
+    TextMenu menu;
+    for (;;) {
+        menu.items = {{0, label, (entry.value.size() > 19 ? "<" + entry.value.substr(entry.value.size() - 19) : entry.value) + "_", false}, {1, "Type using keyboard", "", false},
+                      {2, "Enter: apply", "", false}, {3, "Esc: cancel", "", false}};
+        menu.draw(*screen, *big_font, *pal, "ABUSE MODERN", title, "BACKSPACE DELETES   ENTER APPLIES");
+        wm->flush_screen();
+        event input; wm->get_event(input);
+        const auto result = entry.handle(input);
+        if (result == TextEntry::Result::Cancelled) return false;
+        if (result == TextEntry::Result::Accepted) { value = entry.value; return true; }
     }
 }
 
@@ -694,6 +745,78 @@ static int difficulty_index()
     return 3;
 }
 
+static void text_controls()
+{
+    TextMenu menu;
+    std::string hint = "ENTER TO REBIND   ESC BACK";
+    for (;;) {
+        menu.items.clear();
+        for (int i = 0; i < control_count; ++i)
+            menu.items.push_back({i + 1, control_label(ControlAction(i)), control_key_name(control_binding(ControlAction(i)))});
+        menu.items.push_back({100, "Restore defaults", ""});
+        menu.items.push_back({101, "Back", ""});
+        const auto action = run_text_menu(menu, "KEY BINDINGS", hint.c_str());
+        if (action.id == -1 || action.id == 101) return;
+        const keys_struct previous = keys;
+        const auto old_controller_options = controller_options;
+        if (action.id == 100) { control_reset(); controller_options = old_controller_options; }
+        else {
+            ControllerMenuScope controller_menu;
+            TextMenu prompt;
+            prompt.items = {{0, control_label(ControlAction(action.id - 1)), "Press a key", false},
+                            {0, "Esc cancels", "", false}, {0, "Conflicts swap keys", "", false}};
+            bool cancel = false;
+            for (;;) {
+                prompt.draw(*screen, *big_font, *pal, "ABUSE MODERN", "REBIND KEY", "PRESS A KEY   ESC CANCELS");
+                wm->flush_screen();
+                event key; wm->get_event(key);
+                if (key.type != EV_KEY) continue;
+                if (key.key == JK_ESC) { cancel = true; break; }
+                if (control_rebind(ControlAction(action.id - 1), key.key)) break;
+                prompt.items[1].label = "Reserved key; try another";
+            }
+            if (cancel) continue;
+        }
+        if (!controls_save(std::string(get_save_filename_prefix()) + "controls.cfg")) {
+            keys = previous; controller_options = old_controller_options;
+            text_notice("SAVE FAILED", "Could not save controls. Previous bindings have been restored.");
+        }
+        get_key_bindings(); the_game->reset_keymap();
+    }
+}
+
+static void text_controller()
+{
+    TextMenu menu;
+    for (;;) {
+        menu.items = {{0, "Device", controller_name(), false},
+                      {0, "Gameplay", controller_requires_two_sticks() ? "Needs two sticks" : "Dual-stick layout", false},
+                      {1, "Controller", controller_options.enabled ? "On  < >" : "Off  < >", true, true},
+                      {2, "Dead zone", std::to_string(controller_options.deadzone * 100 / 32767) + "%  < >", true, true},
+                      {3, "Button guide", ""}, {4, "Back", ""}};
+        const auto action = run_text_menu(menu, "CONTROLLER", "LEFT / RIGHT ADJUST   ESC BACK");
+        if (action.id == -1 || action.id == 4) return;
+        if (action.id == 3) {
+            text_notice("GAMEPAD GUIDE", "Left stick / D-pad: move. South: jump. East: use / crouch. Right stick: aim. Right trigger: fire. Left trigger / West: special. Bumpers: weapons. Start: pause / back. Menus: D-pad, South confirms, East cancels.");
+            continue;
+        }
+        const auto previous = controller_options;
+        if (action.id == 1) {
+            if (!controller_options.enabled && controller_requires_two_sticks()) {
+                text_notice("TWO STICKS NEEDED", "This controller cannot provide both movement and aiming. Use keyboard and mouse or a dual-stick controller.");
+                continue;
+            }
+            controller_options.enabled = !controller_options.enabled;
+        }
+        else if (action.id == 2) controller_options.deadzone = std::clamp(controller_options.deadzone + action.direction * 1600, 2000, 16000);
+        if (!controls_save(std::string(get_save_filename_prefix()) + "controls.cfg")) {
+            controller_options = previous;
+            text_notice("SAVE FAILED", "Could not save controller settings. Previous values have been restored.");
+        }
+        the_game->reset_keymap();
+    }
+}
+
 static void text_settings()
 {
     constexpr int fullscreen_action = 9001;
@@ -710,11 +833,15 @@ static void text_settings()
             {ID_MUSIC_UP, "Music", volume(music_volume), (sound_avail & MUSIC_INITIALIZED) != 0, true},
             {fullscreen_action, "Fullscreen", SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN ? "On  < >" : "Off  < >", true, true},
             {ID_LIGHT_OFF, "Brightness", "Adjust..."},
+            {9002, "Key bindings", ""},
+            {9003, "Controller", ""},
             {ID_CANCEL, "Back", ""}
         };
         TextMenuAction action = run_text_menu(menu, "SETTINGS", "LEFT / RIGHT ADJUST   ESC BACK");
         if (action.id == -1 || action.id == ID_CANCEL) return;
-        if (action.id == ID_DIFFICULTY)
+        if (action.id == 9002) text_controls();
+        else if (action.id == 9003) text_controller();
+        else if (action.id == ID_DIFFICULTY)
             l_difficulty->SetValue(levels[(difficulty_index() + action.direction + 4) % 4]);
         else if (action.id == ID_SFX_UP) {
             sfx_volume = std::clamp(sfx_volume + action.direction * 8, 0, 127);
@@ -754,7 +881,10 @@ void main_menu()
         else {
             event message(action.id, NULL);
             menu_handler(message, &legacy);
-            if (the_game->state == RUN_STATE || (main_net_cfg && main_net_cfg->restart_state())) return;
+            if (the_game->state == RUN_STATE || (main_net_cfg && main_net_cfg->restart_state())) {
+                controller_suppress_until_neutral();
+                return;
+            }
         }
     }
 }

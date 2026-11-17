@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -23,6 +24,7 @@
 #include <sys/stat.h>
 
 #include "common.h"
+#include <string>
 
 #include "image.h"
 #include "palette.h"
@@ -290,10 +292,13 @@ jFILE::jFILE(FILE *file_pointer)                       // assumes fp is at begin
 void jFILE::open_external(char const *filename, char const *mode, int flags)
 {
   int skip_size=0;
-  char tmp_name[200];
-  if (spec_prefix && filename[0] != '/')
-    sprintf(tmp_name,"%s%s",spec_prefix,filename);
-  else strcpy(tmp_name,filename);
+  std::string resolved = spec_prefix && filename[0] != '/' ? std::string(spec_prefix) + filename : filename;
+  // Runtime network configuration belongs to the user directory, even with read-only assets.
+  if (save_spec_prefix && !strncmp(filename, "config/", 7)) {
+    const std::string local = std::string(save_spec_prefix) + filename;
+    if ((flags & O_WRONLY) || ::access(local.c_str(), R_OK) == 0) resolved = local;
+  }
+  const char *tmp_name = resolved.c_str();
 
 //  int old_mask=umask(S_IRWXU | S_IRWXG | S_IRWXO);
   if (flags&O_WRONLY)

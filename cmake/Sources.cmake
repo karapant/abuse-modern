@@ -52,6 +52,9 @@ set(ABUSE_GAME_SOURCES
     src/gamma.cpp
     src/ui/volumewindow.cpp
     src/ui/textmenu.cpp
+    src/ui/textentry.cpp
+    src/ui/save_slots.cpp
+    src/ui/network_options.cpp
 )
 
 set(ABUSE_IMLIB_SOURCES
@@ -102,6 +105,8 @@ set(ABUSE_PLATFORM_SOURCES
     src/sdlport/sound.cpp
     src/sdlport/timing.cpp
     src/sdlport/jdir.cpp
+    src/sdlport/controls.cpp
+    src/sdlport/controller.cpp
     src/sdlport/joystick.cpp
     src/sdlport/setup.cpp
     src/sdlport/hmi.cpp

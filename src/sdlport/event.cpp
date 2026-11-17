@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 2001 Anthony Kruize <trandor@labyrinth.net.au>
@@ -31,6 +32,7 @@
 #include "event.h"
 #include "game.h"
 #include "platform.h"
+#include "controller.h"
 
 extern int get_key_binding(const char *, int);
 static std::array<int, SDL_SCANCODE_COUNT> pressed = {};
@@ -59,6 +61,9 @@ static int game_key(const SDL_KeyboardEvent &key)
     case SDLK_CAPSLOCK: return JK_CAPS;
     case SDLK_ESCAPE: return JK_ESC;
     case SDLK_INSERT: return JK_INSERT;
+    case SDLK_DELETE: return JK_DEL;
+    case SDLK_LGUI:
+    case SDLK_RGUI: return JK_COMMAND;
     case SDLK_PAGEUP: return JK_PAGEUP;
     case SDLK_PAGEDOWN: return JK_PAGEDOWN;
     case SDLK_KP_0: return JK_INSERT;
@@ -146,9 +151,21 @@ void event_handler::get_event(event &ev)
     read_mouse(ev, x, y, held_buttons);
     SDL_Event input;
     if (!SDL_PollEvent(&input)) return;
+    controller_event(input);
+    if (input.type == SDL_EVENT_GAMEPAD_ADDED && the_game && the_game->state == RUN_STATE && controller_take_warning())
+        the_game->show_help("Gamepad needs two sticks. Use keyboard/mouse. Controller gameplay disabled.");
+    if (int key = controller_key(input, the_game && the_game->state == RUN_STATE)) {
+        ev.type = EV_KEY; ev.key = key;
+        event *release = new event;
+        release->type = EV_KEYRELEASE; release->key = key;
+        release->mouse_move = ev.mouse_move; release->mouse_button = ev.mouse_button;
+        events.add_end(release);
+        return;
+    }
     switch (input.type) {
     case SDL_EVENT_QUIT: exit(0);
     case SDL_EVENT_MOUSE_MOTION:
+        controller_mouse_used();
         held_buttons = input.motion.state;
         read_mouse(ev, input.motion.x, input.motion.y, held_buttons);
         ev.type = EV_MOUSE_MOVE;
@@ -165,7 +182,8 @@ void event_handler::get_event(event &ev)
         float delta = input.wheel.y;
         if (input.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) delta = -delta;
         if (delta != 0) {
-            ev.key = get_key_binding(delta > 0 ? "b4" : "b3", 0);
+            ev.key = the_game && the_game->state == RUN_STATE && !controller_in_menu() ?
+                get_key_binding(delta > 0 ? "b4" : "b3", 0) : delta > 0 ? JK_UP : JK_DOWN;
             ev.type = EV_KEY;
             event *release = new event;
             release->type = EV_KEYRELEASE;
@@ -201,7 +219,9 @@ void event_handler::get_event(event &ev)
         if (ev.key) ev.type = down ? EV_KEY : EV_KEYRELEASE;
         break;
     }
+    case SDL_EVENT_WINDOW_FOCUS_GAINED: controller_focus(true); break;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
+        controller_focus(false);
         // Release held actions so alt-tab cannot leave movement or firing stuck.
         for (int &key : pressed) if (key) {
             event *release = new event;

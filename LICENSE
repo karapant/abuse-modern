@@ -1,3 +1,16 @@
+Abuse Modern — combined engine: GPL-2.0-or-later
+================================================
+
+The combined engine is licensed under GNU GPL version 2 or, at your option,
+any later version. Original public-domain and WTFPL portions retain their terms
+and per-file copyright notices. New Abuse Modern modules use GPL-2.0-or-later.
+Game assets, MIDI patches, SDL3 and SDL3_mixer are separate components with their
+own licenses; they are not relicensed by this file.
+
+The GPLv2 text, upstream licensing record, WTFPL text and original author credits
+are reproduced below. Modified source files retain original attribution and carry
+dated Abuse Modern modification notices.
+
 		    GNU GENERAL PUBLIC LICENSE
 		       Version 2, June 1991
 
@@ -338,3 +351,102 @@ proprietary programs.  If your program is a subroutine library, you may
 consider it more useful to permit linking proprietary applications with the
 library.  If this is what you want to do, use the GNU Library General
 Public License instead of this License.
+
+
+UPSTREAM LICENSING RECORD
+=========================
+
+Abuse licensing information
+===========================
+
+src/lol/*:
+src/tools/*:
+   Copyright (c) 2005-2001 Sam Hocevar <sam@hocevar.net>
+   Licensed under the WTFPL. Please read COPYING.WTFPL for details.
+
+src/sdlport/*:
+   Copyright (c) 2001 Anthony Kruize <trandor@labyrinth.net.au>
+   Licensed under the GNU GPL 2+. Please read COPYING.GPL for details.
+
+src/*:
+   Copyright (c) 1995 Crack dot Com
+   These files were released in the public domain.
+
+data/sfx/*:
+data/music/*:
+   Copyright (c) 1995 Bobby Prince <bobby@bpmusic.com>
+   Bobby gave Debian permission to redistribute these files.
+
+data/*:
+   Copyright (c) 1995 Crack dot Com
+   Copyright (c) 1996-2008 Justin Cassidy <messiah15@dog.com> and others
+   These files were released in the public domain.
+
+
+
+WTFPL LICENSE TEXT
+==================
+
+            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+                    Version 2, December 2004
+
+ Copyright (C) 2004 Sam Hocevar
+  14 rue de Plaisance, 75014 Paris, France
+ Everyone is permitted to copy and distribute verbatim or modified
+ copies of this license document, and changing it is allowed as long
+ as the name is changed.
+
+            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+
+  0. You just DO WHAT THE FUCK YOU WANT TO.
+
+
+
+ORIGINAL AUTHOR CREDITS
+=======================
+
+Authors
+-------
+
+Sam Hocevar <sam@hocevar.net>
+  Major bugfixing
+  Current code maintainer
+  Debian package maintainer
+
+Anthony Kruize <trandor@labyrinth.net.au>
+  SDL port maintainer
+
+Jeremy Scott
+  Win32 DirectX port and ideas
+
+Jochen Schleu <jjs@jjs.at>
+  Music playback support
+
+Arto Jantunen
+  Previous Debian package maintainer
+  Suggestions and bug reports/fixes
+
+Michael Olson
+  Bug fixes
+
+Ed Snible
+  Performance tweaks
+
+Nix
+  Improvements to the Make and Configure scripts
+
+Bob Ippolito
+  Bug fixes
+
+Joris Beugnies
+  OpenGL Support
+
+Ben Hines
+  Bug fixes for Mac OS X
+
+Julian Mayer
+  Bug fixes for Mac OS X
+
+Crack Dot Com <http://www.abuse2.com>
+  The best 2D platform shooter ever... Abuse!

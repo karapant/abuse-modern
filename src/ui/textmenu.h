@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 #pragma once
 #include <string>
 #include <vector>
@@ -28,6 +29,8 @@ class TextMenu
 public:
     std::vector<TextMenuItem> items;
     int selected = 0;
+    int first_visible = 0;
+    static constexpr int visible_rows = 7;
     void draw(image &target, JCFont &font, palette &colors,
               const char *title, const char *subtitle, const char *hint);
     TextMenuAction handle(const event &input);

@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 2001 Anthony Kruize <trandor@labyrinth.net.au>
@@ -30,6 +31,8 @@
 #include "specs.h"
 #include "keys.h"
 #include "setup.h"
+#include "controls.h"
+#include "controller.h"
 
 flags_struct flags = {};
 keys_struct keys = {};
@@ -170,6 +173,7 @@ void setup(int argc, char **argv)
     if (save_path.back() != '/') save_path += '/';
     set_save_filename_prefix(save_path.c_str());
     readRCFile();
+    controls_load(std::string(get_save_filename_prefix()) + "controls.cfg");
     parseCommandLine(argc, argv);
     if (const char *assets = getenv("ABUSE_PATH"); assets && *assets) set_filename_prefix(assets);
     const std::string startup = std::string(get_filename_prefix()) + "abuse.lsp";
@@ -184,6 +188,7 @@ void setup(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
     atexit(SDL_Quit);
+    if (controller_init()) atexit(controller_shutdown);
     printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
 }
 

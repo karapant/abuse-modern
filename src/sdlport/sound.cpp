@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 2001 Anthony Kruize <trandor@labyrinth.net.au>
@@ -33,6 +34,7 @@
 
 extern flags_struct flags;
 static MIX_Mixer *mixer = nullptr;
+static bool midi_available = false;
 static std::array<MIX_Track *, 50> effects = {};
 
 int sound_init(int, char **)
@@ -59,14 +61,21 @@ int sound_init(int, char **)
         track = MIX_CreateTrack(mixer);
         if (!track) { sound_uninit(); return 0; }
     }
+    midi_available = false;
+    for (int i = 0; i < MIX_GetNumAudioDecoders(); ++i) {
+        const char *decoder = MIX_GetAudioDecoder(i);
+        if (decoder && (strstr(decoder, "MIDI") || strstr(decoder, "TIMIDITY") || strstr(decoder, "FLUIDSYNTH"))) midi_available = true;
+    }
+    if (!midi_available)
+        fprintf(stderr, "Music disabled: no MIDI instrument setup. On Ubuntu install freepats, or set TIMIDITY_CFG to a valid patch configuration. Sound effects remain enabled.\n");
     printf("Audio: SDL3_mixer, 50 effect tracks\n");
-    return SFX_INITIALIZED | MUSIC_INITIALIZED;
+    return SFX_INITIALIZED | (midi_available ? MUSIC_INITIALIZED : 0);
 }
 void sound_uninit()
 {
     if (!mixer) return;
     MIX_DestroyMixer(mixer);
-    mixer = nullptr;
+    mixer = nullptr; midi_available = false;
     effects.fill(nullptr);
     MIX_Quit();
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
@@ -112,7 +121,7 @@ void sound_effect::play(int volume, int pitch, int panpot)
 song::song(const char *filename)
 {
     Name = strdup(filename);
-    if (!mixer) return;
+    if (!mixer || !midi_available) return;
     const std::string path = std::string(get_filename_prefix()) + filename;
     uint32_t size = 0;
     uint8_t *bytes = load_hmi(path.c_str(), size);

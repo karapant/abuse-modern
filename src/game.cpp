@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -1333,6 +1334,7 @@ void Game::request_end()
 
 Game::Game(int argc, char **argv)
 {
+  state = START_STATE; // event handling is active during title/gamma initialization
   int i;
   req_name[0]=0;
   bg_xmul = bg_ymul = 1;
@@ -1649,11 +1651,14 @@ extern int start_edit;
 
 void Game::get_input()
 {
+    bool pause_requested = false;
     event ev;
     idle_ticks++;
     while(event_waiting())
     {
         get_event(ev);
+        if (ev.type == EV_KEY && ev.key == JK_ESC && state == RUN_STATE && !(dev & EDIT_MODE))
+            pause_requested = true;
 
         if(ev.type == EV_MOUSE_MOVE)
         {
@@ -1912,6 +1917,8 @@ void Game::get_input()
             }
         }
     }
+    // Keep short Escape/Start taps even when their release arrives in the same frame.
+    if (pause_requested && state == RUN_STATE) set_state(MENU_STATE);
 }
 
 
@@ -2374,9 +2381,7 @@ void game_net_init(int argc, char **argv)
 #endif
 }
 
-#include <SDL3/SDL_main.h>
-
-int main(int argc, char *argv[])
+int abuse_main(int argc, char *argv[])
 {
     start_argc = argc;
     start_argv = argv;

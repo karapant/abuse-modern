@@ -1,3 +1,4 @@
+// Modified for Abuse Modern on 2026-11-17; modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -17,6 +18,7 @@
 #include "common.h"
 
 #include "sdlport/joy.h"
+#include "sdlport/controller.h"
 #include "game.h"
 
 #include "keys.h"
@@ -200,10 +202,18 @@ void get_movement(int player, int &x, int &y, int &b1, int &b2, int &b3, int &b4
             else
                 b4 = 0;
         }
+        if (player == 0) {
+            const auto pad = controller_state();
+            if (!x) x = pad.x;
+            if (!y) y = pad.y;
+            if (pad.jump) y = -1;
+            else if (pad.use) y = 1;
+            b1 |= pad.special; b2 |= pad.fire;
+        }
     }
     else
     {
-        x = y = b1 = b2 = b3 = 0;
+        x = y = b1 = b2 = b3 = b4 = 0;
     }
 }
 
@@ -216,7 +226,7 @@ void key_bindings(int player, int &left, int &right, int &up, int &down, int &b1
     b1 = key_map[player].b1;
     b2 = key_map[player].b2;
     b3 = key_map[player].b3;
-    b3 = key_map[player].b4;
+    b4 = key_map[player].b4;
 }
 
 

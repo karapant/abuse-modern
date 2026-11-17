@@ -25,3 +25,11 @@ screenshot*.bmp
 .idea/
 .DS_Store
 *~
+
+# Optional controls/network configuration and integration fixtures
+/controls.cfg*
+/config/
+/engine-integration-fixture/
+/engine-integration-one-stick/
+/audio-fixture/
+/input-settings-fixture/
