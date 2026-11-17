@@ -25,6 +25,7 @@
 #include "common.h"
 
 #include "sdlport/joy.h"
+#include "sdlport/preferences.h"
 
 #include "dev.h"
 #include "game.h"
@@ -1381,6 +1382,11 @@ Game::Game(int argc, char **argv)
 
 //    ProfilerInit(collectDetailed, bestTimeBase, 2000, 200); //prof
     load_data(argc, argv);
+    if (game_settings.difficulty >= 0 && (!main_net_cfg ||
+        (main_net_cfg->state != net_configuration::SERVER && main_net_cfg->state != net_configuration::CLIENT))) {
+        LSymbol *levels[] = {l_easy, l_medium, l_hard, l_extreme};
+        l_difficulty->SetValue(levels[game_settings.difficulty]);
+    }
 //    ProfilerDump("\pabuse.prof");  //prof
 //    ProfilerTerm();
 
@@ -2171,23 +2177,8 @@ int external_print = 0;
 
 void start_sound(int argc, char **argv)
 {
-  sfx_volume = music_volume = 127;
-
-  for(int i = 1; i < argc; i++)
-    if(!strcmp(argv[i], "-sfx_volume"))
-    {
-      i++;
-      if(atoi(argv[i])>=0 && atoi(argv[i])<127)
-        sfx_volume = atoi(argv[i]);
-      else printf("Bad sound effects volume level, use 0..127\n");
-    }
-    else if(!strcmp(argv[i], "-music_volume"))
-    {
-      i++;
-      if(atoi(argv[i])>=0 && atoi(argv[i])<127)
-        music_volume = atoi(argv[i]);
-      else printf("Bad music volume level, use 0..127\n");
-    }
+  sfx_volume = game_settings.sfx_volume;
+  music_volume = game_settings.music_volume;
 
   sound_avail = sound_init(argc, argv);
 }

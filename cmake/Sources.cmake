@@ -105,6 +105,7 @@ set(ABUSE_PLATFORM_SOURCES
     src/sdlport/sound.cpp
     src/sdlport/timing.cpp
     src/sdlport/jdir.cpp
+    src/sdlport/preferences.cpp
     src/sdlport/controls.cpp
     src/sdlport/controller.cpp
     src/sdlport/joystick.cpp

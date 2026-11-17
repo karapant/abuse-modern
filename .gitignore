@@ -33,3 +33,8 @@ screenshot*.bmp
 /engine-integration-one-stick/
 /audio-fixture/
 /input-settings-fixture/
+
+/settings.cfg*
+/preferences-fixture/
+/preferences-startup-fixture/
+/platform-preferences-fixture/

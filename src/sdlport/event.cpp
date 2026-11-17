@@ -199,8 +199,9 @@ void event_handler::get_event(event &ev)
         const bool down = input.type == SDL_EVENT_KEY_DOWN;
         if (input.key.repeat) break;
         if (input.key.key == SDLK_F11) {
-            if (down) SDL_SetWindowFullscreen(platform_window(),
-                !(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN));
+            if (down && !platform_set_fullscreen(
+                    !(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN)) && the_game)
+                the_game->show_help("Could not save fullscreen preference.");
             break;
         }
         if (input.key.key == SDLK_F12) {

@@ -29,6 +29,7 @@
 #include "image.h"
 #include "setup.h"
 #include "platform.h"
+#include "preferences.h"
 
 image *screen = nullptr;
 int xres, yres;
@@ -49,6 +50,19 @@ static void video_error()
 
 SDL_Window *platform_window() { return window; }
 SDL_Renderer *platform_renderer() { return renderer; }
+
+bool platform_set_fullscreen(bool enabled)
+{
+    const bool previous = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+    if (!SDL_SetWindowFullscreen(window, enabled)) return false;
+    if (!save_setting(Setting::Fullscreen, enabled)) {
+        SDL_SetWindowFullscreen(window, previous);
+        SDL_SetError("Cannot save fullscreen preference; previous value restored");
+        return false;
+    }
+    flags.fullscreen = enabled;
+    return true;
+}
 
 void set_mode(int, int, char **)
 {

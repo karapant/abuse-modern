@@ -12,6 +12,8 @@
 #include "game.h"
 #include "ui/textmenu.h"
 #include <memory>
+#include <filesystem>
+#include "preferences.h"
 
 extern unsigned char fnt6x13[192 * 104];
 
@@ -201,6 +203,23 @@ int main(int argc, char **argv)
         key.key = JK_PAGEDOWN; menu.handle(key);
         require(menu.selected == 7, "page navigation advances a visible page");
     }
+    // Display changes persist, and a failed write restores the prior display mode.
+    const auto preferences = std::filesystem::current_path() / "platform-preferences-fixture";
+    std::filesystem::create_directories(preferences);
+    set_save_filename_prefix((preferences.string() + "/").c_str());
+    require(platform_set_fullscreen(true), "enable and save fullscreen");
+    SDL_SyncWindow(platform_window());
+    GameSettings reloaded;
+    require(settings_load((preferences / "settings.cfg").string(), reloaded) && reloaded.fullscreen == 1,
+            "fullscreen survives configuration reload");
+    require(platform_set_fullscreen(false), "disable and save fullscreen");
+    SDL_SyncWindow(platform_window());
+    set_save_filename_prefix((preferences.string() + "/missing/").c_str());
+    require(!platform_set_fullscreen(true), "fullscreen reports failed preference write");
+    SDL_SyncWindow(platform_window());
+    require(!(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN) && flags.fullscreen == 0 && game_settings.fullscreen == 0,
+            "failed preference write restores window mode and runtime values");
+    std::filesystem::remove_all(preferences);
     close_graphics();
     SDL_Quit();
     std::remove("platform-test.bmp");

@@ -7,3 +7,5 @@ SDL_Renderer *platform_renderer();
 void platform_mouse_position(float window_x, float window_y, int &game_x, int &game_y);
 void platform_warp_mouse(int game_x, int game_y);
 bool platform_screenshot(const char *path);
+
+bool platform_set_fullscreen(bool enabled);

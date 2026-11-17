@@ -22,6 +22,7 @@
 #include "sdlport/controller.h"
 #include "configuration.h"
 #include "sdlport/platform.h"
+#include "sdlport/preferences.h"
 
 #include "common.h"
 
@@ -832,6 +833,8 @@ static void text_settings()
             {ID_SFX_UP, "Sound effects", volume(sfx_volume), (sound_avail & SFX_INITIALIZED) != 0, true},
             {ID_MUSIC_UP, "Music", volume(music_volume), (sound_avail & MUSIC_INITIALIZED) != 0, true},
             {fullscreen_action, "Fullscreen", SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN ? "On  < >" : "Off  < >", true, true},
+            {9004, "Window scale", std::to_string(game_settings.scale) + "x  < >",
+                !(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN), true},
             {ID_LIGHT_OFF, "Brightness", "Adjust..."},
             {9002, "Key bindings", ""},
             {9003, "Controller", ""},
@@ -841,18 +844,36 @@ static void text_settings()
         if (action.id == -1 || action.id == ID_CANCEL) return;
         if (action.id == 9002) text_controls();
         else if (action.id == 9003) text_controller();
-        else if (action.id == ID_DIFFICULTY)
-            l_difficulty->SetValue(levels[(difficulty_index() + action.direction + 4) % 4]);
+        else if (action.id == ID_DIFFICULTY) {
+            const int value = (difficulty_index() + action.direction + 4) % 4;
+            if (save_setting(Setting::Difficulty, value)) l_difficulty->SetValue(levels[value]);
+            else text_notice("SAVE FAILED", "Could not save difficulty. Previous value retained.");
+        }
         else if (action.id == ID_SFX_UP) {
-            sfx_volume = std::clamp(sfx_volume + action.direction * 8, 0, 127);
-            const char *sample = "sfx/ambtech1.wav";
-            cache.sfx(cache.reg(sample, sample, SPEC_EXTERN_SFX, 1))->play(sfx_volume);
+            const int value = std::clamp(sfx_volume + action.direction * 8, 0, 127);
+            if (save_setting(Setting::Effects, value)) {
+                sfx_volume = value;
+                const char *sample = "sfx/ambtech1.wav";
+                cache.sfx(cache.reg(sample, sample, SPEC_EXTERN_SFX, 1))->play(sfx_volume);
+            } else text_notice("SAVE FAILED", "Could not save effects volume. Previous value retained.");
         } else if (action.id == ID_MUSIC_UP) {
-            music_volume = std::clamp(music_volume + action.direction * 8, 0, 127);
-            if (current_song) current_song->set_volume(music_volume);
+            const int value = std::clamp(music_volume + action.direction * 8, 0, 127);
+            if (save_setting(Setting::Music, value)) {
+                music_volume = value;
+                if (current_song) current_song->set_volume(music_volume);
+            } else text_notice("SAVE FAILED", "Could not save music volume. Previous value retained.");
         } else if (action.id == fullscreen_action) {
-            SDL_SetWindowFullscreen(platform_window(),
-                !(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN));
+            if (!platform_set_fullscreen(!(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN)))
+                text_notice("SAVE FAILED", "Could not change and save fullscreen. Previous value restored.");
+        } else if (action.id == 9004) {
+            const int value = std::clamp(game_settings.scale + action.direction, 1, 8);
+            int old_width, old_height; SDL_GetWindowSize(platform_window(), &old_width, &old_height);
+            if (!SDL_SetWindowSize(platform_window(), xres * value, yres * value)) {
+                text_notice("DISPLAY ERROR", "Could not resize the window.");
+            } else if (!save_setting(Setting::Scale, value)) {
+                SDL_SetWindowSize(platform_window(), old_width, old_height);
+                text_notice("SAVE FAILED", "Could not save window scale. Previous size restored.");
+            }
         } else if (action.id == ID_LIGHT_OFF) gamma_correct(pal, 1);
     }
 }

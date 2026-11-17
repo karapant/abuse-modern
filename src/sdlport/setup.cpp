@@ -33,6 +33,7 @@
 #include "setup.h"
 #include "controls.h"
 #include "controller.h"
+#include "preferences.h"
 
 flags_struct flags = {};
 keys_struct keys = {};
@@ -47,6 +48,10 @@ void showHelp()
            "  -scale N         Initial window scale (1-8)\n"
            "  -size W H        Editor framebuffer size (320-4096 x 200-2160)\n"
            "  -fullscreen      Desktop fullscreen (F11 toggles)\n"
+           "  -windowed        Override saved fullscreen setting\n"
+           "  -sfx_volume N    Effects volume (0-127)\n"
+           "  -music_volume N  Music volume (0-127)\n"
+           "  -difficulty NAME easy, normal, hard or extreme\n"
            "  -nosound         Disable audio\n"
            "  -mono            Disable stereo panning\n"
            "  -edit            Open the original level editor\n"
@@ -97,10 +102,19 @@ void readRCFile()
         };
         trim(key); trim(value);
         if (key.empty() || value.empty()) continue;
-        if (key == "fullscreen") flags.fullscreen = number(value.c_str(), 0, 1, "fullscreen");
-        else if (key == "mono") flags.mono = number(value.c_str(), 0, 1, "mono");
-        else if (key == "grabmouse") flags.grabmouse = number(value.c_str(), 0, 1, "grabmouse");
-        else if (key == "scale") scale = number(value.c_str(), 1, 8, "scale");
+        // Ignore bad saved numeric values; strict validation is reserved for CLI arguments.
+        if (key == "fullscreen" || key == "scale") {
+            GameSettings legacy; legacy.fullscreen = flags.fullscreen; legacy.scale = scale;
+            if (key == "fullscreen") {
+                if (value == "0" || value == "1") flags.fullscreen = value == "1";
+            } else if (settings_override(legacy, "-scale", value)) scale = legacy.scale;
+        }
+        else if (key == "mono" || key == "grabmouse") {
+            if (value == "0" || value == "1") {
+                if (key == "mono") flags.mono = value == "1";
+                else flags.grabmouse = value == "1";
+            }
+        }
         else if (key == "datadir") set_filename_prefix(value.c_str());
         else if (key == "left") keys.left = key_value(value.c_str());
         else if (key == "right") keys.right = key_value(value.c_str());
@@ -124,10 +138,16 @@ void parseCommandLine(int argc, char **argv)
             }
             return argv[++i];
         };
-        if (!strcmp(argv[i], "-fullscreen")) flags.fullscreen = 1;
-        else if (!strcmp(argv[i], "-nosound")) flags.nosound = 1;
-        else if (!strcmp(argv[i], "-mono")) flags.mono = 1;
-        else if (!strcmp(argv[i], "-scale")) scale = number(arg("-scale"), 1, 8, "-scale");
+        const std::string option = argv[i];
+        if (option == "-fullscreen" || option == "-windowed") settings_override(game_settings, option);
+        else if (option == "-scale" || option == "-sfx_volume" || option == "-music_volume" || option == "-difficulty") {
+            const char *value = arg(option.c_str());
+            if (!settings_override(game_settings, option, value)) {
+                fprintf(stderr, "Invalid value for %s (see --help)\n", option.c_str()); exit(EXIT_FAILURE);
+            }
+        }
+        else if (option == "-nosound") flags.nosound = 1;
+        else if (option == "-mono") flags.mono = 1;
         else if (!strcmp(argv[i], "-size")) {
             xres = number(arg("-size"), 320, 4096, "width");
             yres = number(arg("-size"), 200, 2160, "height");
@@ -174,6 +194,11 @@ void setup(int argc, char **argv)
     set_save_filename_prefix(save_path.c_str());
     readRCFile();
     controls_load(std::string(get_save_filename_prefix()) + "controls.cfg");
+    game_settings = GameSettings{};
+    game_settings.fullscreen = flags.fullscreen;
+    game_settings.scale = scale;
+    settings_load(std::string(get_save_filename_prefix()) + "settings.cfg", game_settings);
+    saved_settings = game_settings;
     parseCommandLine(argc, argv);
     if (const char *assets = getenv("ABUSE_PATH"); assets && *assets) set_filename_prefix(assets);
     const std::string startup = std::string(get_filename_prefix()) + "abuse.lsp";
@@ -181,6 +206,8 @@ void setup(int argc, char **argv)
         fprintf(stderr, "Cannot find Abuse game data at %s. Use -datadir PATH.\n", get_filename_prefix());
         exit(EXIT_FAILURE);
     }
+    scale = game_settings.scale;
+    flags.fullscreen = game_settings.fullscreen;
     flags.xres = xres * scale;
     flags.yres = yres * scale;
     if (!SDL_Init(SDL_INIT_VIDEO)) {

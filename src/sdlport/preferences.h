@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#pragma once
+#include <string>
+struct GameSettings
+{
+    int sfx_volume = 127, music_volume = 127;
+    int difficulty = -1; // inherit the game data's default until explicitly selected
+    int fullscreen = 0, scale = 3;
+};
+enum class Setting { Effects, Music, Difficulty, Fullscreen, Scale };
+extern GameSettings game_settings;
+extern GameSettings saved_settings;
+bool settings_load(const std::string &path, GameSettings &settings);
+bool settings_write(const std::string &path, const GameSettings &settings);
+bool settings_override(GameSettings &settings, const std::string &option, const std::string &value = "");
+bool remember_setting(const std::string &path, GameSettings &saved, GameSettings &effective, Setting field, int value);
+bool save_setting(Setting field, int value);

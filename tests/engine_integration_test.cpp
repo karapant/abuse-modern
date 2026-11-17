@@ -17,6 +17,9 @@
 #include "ui/textmenu.h"
 #include "ui/save_slots.h"
 #include "sdlport/controls.h"
+#include "sdlport/preferences.h"
+#include "clisp.h"
+#include "lisp.h"
 #include "configuration.h"
 #include "loadgame.h"
 #include "sdlport/controller.h"
@@ -85,8 +88,25 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
     }
     if (phase == 0 && page == "MAIN MENU") {
         SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+        require(l_difficulty->GetValue() == l_hard, "saved difficulty overrides game-data defaults after script load");
         snapshot("main.bmp");
-        if (selected(menu, "Settings")) { enter(); phase = 1; } else choose(menu, "Settings");
+        if (selected(menu, "Settings")) { enter(); phase = 50; } else choose(menu, "Settings");
+    } else if (phase == 50 && page == "SETTINGS") {
+        if (selected(menu, "Difficulty")) { enter(); phase = 51; } else choose(menu, "Difficulty");
+    } else if (phase == 51 && page == "SETTINGS") {
+        GameSettings saved;
+        if (l_difficulty->GetValue() != l_extreme) return; // queued key release can redraw before the injected press
+        require(settings_load((root / "settings.cfg").string(), saved) && saved.difficulty == 3 && l_difficulty->GetValue() == l_extreme,
+                "difficulty menu updates live game and saved preference");
+        if (selected(menu, "Window scale")) { enter(); phase = 52; } else choose(menu, "Window scale");
+    } else if (phase == 52 && page == "SETTINGS") {
+        GameSettings saved;
+        if (game_settings.scale != 4) return;
+        int width, height; SDL_GetWindowSize(platform_window(), &width, &height);
+        require(settings_load((root / "settings.cfg").string(), saved) && saved.scale == 4 && width == 1280 && height == 800,
+                "window scale menu resizes live window and saves preference");
+        phase = 1;
+        choose(menu, "Key bindings");
     } else if (phase == 1 && page == "SETTINGS") {
         if (selected(menu, "Key bindings")) { enter(); phase = 2; } else choose(menu, "Key bindings");
     } else if (phase == 2 && page == "KEY BINDINGS") {
@@ -180,6 +200,9 @@ int main(int argc, char **argv)
     one_stick = argc > 2 && std::string(argv[2]) == "--one-stick";
     root = std::filesystem::current_path() / (one_stick ? "engine-integration-one-stick" : "engine-integration-fixture");
     std::filesystem::remove_all(root); std::filesystem::create_directories(root);
+    GameSettings initial;
+    initial.difficulty = 2;
+    require(settings_write((root / "settings.cfg").string(), initial), "prepare persistent engine difficulty");
     std::ofstream(root / "gamma.lsp") << "(setq darkest_gray 16)\n";
     const auto saves = root.string() + "/";
     SDL_setenv_unsafe("ABUSE_SAVE_PATH", saves.c_str(), 1);

@@ -32,7 +32,7 @@ and extract them separately. Use the directory containing `abuse.lsp`:
 ```
 
 A local `data/` folder is ignored by Git. Useful options: `-fullscreen`,
-`-nosound`, `-edit`, `-scale 1` through `-scale 8`, and `--help`.
+`-windowed`, `-nosound`, `-edit`, `-scale 1` through `-scale 8`, and `--help`.
 
 **Music:** Ubuntu/Debian needs `sudo apt install freepats` (included by the
 setup script's `--music` option). Elsewhere, install TiMidity-compatible `.pat`
@@ -63,8 +63,9 @@ and have gameplay input disabled; menu navigation still works.
 Adjust the dead zone under **Settings → Controller**. Network text fields need
 a keyboard. Saving uses the original in-level save consoles.
 
-Bindings and controller settings persist; volume and difficulty changes currently
-apply to the session. Saves/settings normally live in
+Bindings, controller settings, volumes, difficulty, fullscreen and window scale
+persist. Adjust display scale under **Settings → Window scale**. Command-line
+options override saved settings for that launch. Saves/settings normally live in
 `~/.local/share/abuse-modern/abuse-modern/` on Linux. Override with `ABUSE_SAVE_PATH`.
 
 ## Tests
