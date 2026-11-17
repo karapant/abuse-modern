@@ -105,6 +105,7 @@ static void check_explosion_effect()
     std::array<uint8_t, 64 * 256> levels{};
     for (size_t i = 0; i < levels.size(); ++i) levels[i] = i / 256;
     light = add_light_source(0, 20032, 20032, 0, 32, 0, 0);
+    light->environment_tint = false;
     test.clear(80);
     test.SetClip(3, 4, 70, 71);
     enhanced_light_screen(&test, 20000, 20000, levels.data(), 0, *pal, tick);
@@ -112,6 +113,30 @@ static void check_explosion_effect()
             test.Pixel(vec2i(55, 36)) > test.Pixel(vec2i(56, 36)) &&
             test.Pixel(vec2i(2, 36)) == 80, "lighting has per-pixel falloff and respects the viewport");
     delete_light(light);
+}
+static void check_environment_lights()
+{
+    image test(vec2i(160, 128), nullptr, 2);
+    const int gray = pal->find_closest(108, 108, 108);
+    // The identity lookup separates fixture tint from ambient shading in these assertions.
+    std::array<uint8_t, 64 * 256> unchanged{};
+    for (size_t i = 0; i < unchanged.size(); ++i) unchanged[i] = i % 256;
+
+    auto *round = add_light_source(0, 20035, 20050, 6, 30, 0, 0);
+    auto *directional = add_light_source(2, 20105, 20050, 6, 30, 0, 0);
+    auto *brightness = add_light_source(9, 20036, 20051, 32, 33, 8, 8);
+    test.clear(gray);
+    enhanced_light_screen(&test, 20000, 20000, unchanged.data(), 10, *pal, current_level->tick_counter());
+    const int amber = test.Pixel(vec2i(35, 50));
+    const int blue = test.Pixel(vec2i(105, 55));
+    require(amber != gray && pal->red(amber) > pal->blue(amber), "round lights cast a warm tint");
+    require(blue != gray && pal->blue(blue) > pal->red(blue), "directional fixtures cast a cool tint");
+    require(test.Pixel(vec2i(105, 45)) == gray && test.Pixel(vec2i(35, 83)) == gray,
+            "fixture color respects direction and radius");
+    require(test.Pixel(vec2i(40, 55)) == gray, "solid room lighting preserves color");
+    delete_light(brightness);
+    delete_light(directional);
+    delete_light(round);
 }
 static void check_projectile_lights(view *v)
 {
@@ -381,6 +406,7 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         }
         check_explosion_effect();
         check_projectile_lights(v);
+        check_environment_lights();
         check_wheel(v);
         int x, y, b1, b2, b3, b4;
         the_game->set_key_down('j', 1);

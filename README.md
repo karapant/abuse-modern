@@ -71,7 +71,8 @@ fullscreen. **View resolution** changes immediately: 320×200 (original), 480×3
 640×400 or widescreen 640×360. Larger views show more of the level with smaller
 characters. **Window scale** changes window size. Under **Settings → Enhancements**, toggle
 **Modern HUD** and **Enhanced Lighting**. Both are enabled by default and saved.
-Enhanced Lighting smooths light falloff and adds colored flashes, sparks and
+Enhanced Lighting gives round lights a warm tint and directional lights a cool
+tint. It smooths light falloff and adds colored flashes, sparks and
 smoke to explosions that use the game's flash effect. Lasers, plasma and rockets
 light nearby surfaces as they travel. Launches start in native
 fullscreen; use `-windowed` to start windowed. New configurations use a 480×300

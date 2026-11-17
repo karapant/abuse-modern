@@ -33,6 +33,7 @@ class light_source
 
   int32_t x1,y1,x2,y2;
   char known;
+  bool environment_tint = true; // visual only, never serialized
   light_source *next;
 
   void calc_range();

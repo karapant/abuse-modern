@@ -707,10 +707,13 @@ void *l_caller(long number, void *args)
       int xs=lnumber_value(CAR(args)->Eval()); args=lcdr(args);
       int ys=lnumber_value(CAR(args)->Eval());
       // EXP_LIGHT is the original game's short-lived explosion flash object.
-      if (game_settings.enhanced_lighting && current_level && current_object &&
-          !strcmp(object_names[current_object->otype], "EXP_LIGHT"))
-        add_explosion_effect(x, y, r2, current_level->tick_counter());
-      return LPointer::Create(add_light_source(t,x,y,r1,r2,xs,ys));
+      auto *light = add_light_source(t,x,y,r1,r2,xs,ys);
+      if (current_level && current_object && !strcmp(object_names[current_object->otype], "EXP_LIGHT")) {
+        light->environment_tint = false;
+        if (game_settings.enhanced_lighting)
+          add_explosion_effect(x, y, r2, current_level->tick_counter());
+      }
+      return LPointer::Create(light);
     } break;
     case 15 :
     {

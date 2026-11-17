@@ -800,48 +800,9 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
     const int width = right - left, height = bottom - top;
     if (width <= 0 || height <= 0) return;
 
-    if (shutdown_lighting && !disable_autolight) ambient = shutdown_lighting_value;
-    if (ambient != 63) {
-        const int base = std::clamp(ambient + ambient_ramp, 0, 63);
-        static std::vector<uint8_t> levels, solid;
-        levels.assign(size_t(width) * height, base);
-        solid.assign(levels.size(), 0);
-        for (const light_source *light = first_light_source; light; light = light->next) {
-            const int x1 = std::max(0, light->x1 - world_x);
-            const int y1 = std::max(0, light->y1 - world_y);
-            const int x2 = std::min(width - 1, light->x2 - world_x);
-            const int y2 = std::min(height - 1, light->y2 - world_y);
-            const int x_scale = 1 << std::clamp(light->xshift, 0, 16);
-            const int y_scale = 1 << std::clamp(light->yshift, 0, 16);
-            for (int y = y1; y <= y2; ++y) {
-                const float dy = float(y + world_y - light->y) * y_scale;
-                for (int x = x1; x <= x2; ++x) {
-                    const size_t offset = size_t(y) * width + x;
-                    if (solid[offset]) continue;
-                    if (light->type == 9) {
-                        levels[offset] = std::clamp(light->inner_radius, 0, 63);
-                        solid[offset] = 1;
-                    } else if (levels[offset] < 63) {
-                        const float dx = float(x + world_x - light->x) * x_scale;
-                        const float distance = std::sqrt(dx * dx + dy * dy);
-                        const float falloff = std::clamp((light->outer_radius - distance) /
-                            std::max(1.f, float(light->outer_radius) - light->inner_radius), 0.f, 1.f);
-                        const int strength = int(63 * falloff * falloff * (3 - 2 * falloff) + 0.5f);
-                        levels[offset] = std::min(63, levels[offset] + strength);
-                    }
-                }
-            }
-        }
-        for (int y = 0; y < height; ++y) {
-            auto *row = target->scan_line(top + y) + left;
-            for (int x = 0; x < width; ++x)
-                row[x] = lookup[levels[size_t(y) * width + x] * 256 + row[x]];
-        }
-    }
-
     // Cache palette blends. The flash adds warm light while smoke softens the background.
     using BlendTable = std::array<std::array<uint8_t, 256>, 8>;
-    static BlendTable warm, smoke;
+    static BlendTable warm, smoke, warm_fixture, cool_fixture;
     static std::array<BlendTable, 4> projectile_blends;
     constexpr int projectile_colors[][3] = {{23, 2, 3}, {15, 5, 19}, {7, 12, 22}, {20, 10, 2}};
     static std::array<uint8_t, 768> previous_palette{};
@@ -865,6 +826,12 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
                         std::min(255, r + strength * rgb[0]), std::min(255, g + strength * rgb[1]),
                         std::min(255, b + strength * rgb[2]));
                 }
+                // Shift the lit surface's colors in proportion to its brightness.
+                // Black stays black, and the level's brightness lookup still does the shading.
+                warm_fixture[strength][i] = colors.find_closest(std::min(255, r + r * strength / 23),
+                    std::min(255, g + g * strength / 84), b - b * strength / 22);
+                cool_fixture[strength][i] = colors.find_closest(r - r * strength / 24,
+                    std::min(255, g + g * strength / 50), std::min(255, b + b * strength / 18));
                 smoke[strength][i] = colors.find_closest((r * (16 - strength) + 70 * strength) / 16,
                     (g * (16 - strength) + 66 * strength) / 16, (b * (16 - strength) + 63 * strength) / 16);
             }
@@ -873,6 +840,60 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
         palette_ready = true;
     };
     bool blends_ready = false;
+    if (shutdown_lighting && !disable_autolight) ambient = shutdown_lighting_value;
+    if (ambient != 63) {
+        const int base = std::clamp(ambient + ambient_ramp, 0, 63);
+        static std::vector<uint8_t> levels, solid;
+        static std::vector<int> fixture_tint;
+        levels.assign(size_t(width) * height, base);
+        solid.assign(levels.size(), 0);
+        fixture_tint.assign(levels.size(), 0);
+        for (const light_source *light = first_light_source; light; light = light->next) {
+            const int x1 = std::max(0, light->x1 - world_x);
+            const int y1 = std::max(0, light->y1 - world_y);
+            const int x2 = std::min(width - 1, light->x2 - world_x);
+            const int y2 = std::min(height - 1, light->y2 - world_y);
+            const int x_scale = 1 << std::clamp(light->xshift, 0, 16);
+            const int y_scale = 1 << std::clamp(light->yshift, 0, 16);
+            for (int y = y1; y <= y2; ++y) {
+                const float dy = float(y + world_y - light->y) * y_scale;
+                for (int x = x1; x <= x2; ++x) {
+                    const size_t offset = size_t(y) * width + x;
+                    if (solid[offset]) continue;
+                    if (light->type == 9) {
+                        levels[offset] = std::clamp(light->inner_radius, 0, 63);
+                        solid[offset] = 1;
+                        fixture_tint[offset] = 0;
+                    } else if (levels[offset] < 63 || light->environment_tint) {
+                        const float dx = float(x + world_x - light->x) * x_scale;
+                        const float distance = std::sqrt(dx * dx + dy * dy);
+                        const float falloff = std::clamp((light->outer_radius - distance) /
+                            std::max(1.f, float(light->outer_radius) - light->inner_radius), 0.f, 1.f);
+                        const int strength = int(63 * falloff * falloff * (3 - 2 * falloff) + 0.5f);
+                        levels[offset] = std::min(63, levels[offset] + strength);
+                        if (light->environment_tint)
+                            fixture_tint[offset] += light->type == 0 ? strength : -strength;
+                    }
+                }
+            }
+        }
+        for (int y = 0; y < height; ++y) {
+            auto *row = target->scan_line(top + y) + left;
+            for (int x = 0; x < width; ++x) {
+                const size_t offset = size_t(y) * width + x;
+                row[x] = lookup[levels[offset] * 256 + row[x]];
+                // Opposing colors mix in overlap. Neither color affects brightness volumes.
+                const int tint = std::clamp(fixture_tint[offset] / 9, -7, 7);
+                if (!tint) continue;
+                if (!blends_ready) {
+                    prepare_blends();
+                    blends_ready = true;
+                }
+                row[x] = tint > 0 ? warm_fixture[tint][row[x]] : cool_fixture[-tint][row[x]];
+            }
+        }
+    }
+
     for (const auto &light : projectile_lights) {
         const int x1 = left + light.x1 - world_x, y1 = top + light.y1 - world_y;
         const int x2 = left + light.x2 - world_x, y2 = top + light.y2 - world_y;
