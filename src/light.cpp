@@ -810,7 +810,7 @@ void reflect_projectile_lights(image &target, image &surfaces, int world_x, int 
         current[i * 3 + 2] = colors.blue(i);
     }
     if (!ready || current != previous) {
-        constexpr int hues[][3] = {{16, 2, 2}, {10, 3, 13}, {4, 8, 15}, {15, 7, 1}};
+        constexpr int hues[][3] = {{18, 2, 2}, {11, 3, 15}, {4, 9, 17}, {17, 8, 1}};
         for (size_t glow = 0; glow < projectile_blends.size(); ++glow) {
             const auto &hue = hues[glow];
             for (int strength = 1; strength <= 7; ++strength) {
