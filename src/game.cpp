@@ -28,6 +28,7 @@
 #include "sdlport/joy.h"
 #include "sdlport/preferences.h"
 #include "sdlport/platform.h"
+#include "file_path.h"
 
 #include "dev.h"
 #include "game.h"
@@ -96,13 +97,9 @@ tcpip_protocol tcpip;
 
 FILE *open_FILE(char const *filename, char const *mode)
 {
-    /* FIXME: potential buffer overflow here */
-    char tmp_name[200];
-    if(get_filename_prefix() && filename[0] != '/')
-        sprintf(tmp_name, "%s %s", get_filename_prefix(), filename);
-    else
-        strcpy(tmp_name, filename);
-    return fopen(tmp_name, mode);
+    const char *prefix = get_filename_prefix();
+    const std::string path = prefix && !rooted_filename(filename) ? std::string(prefix) + filename : filename;
+    return open_utf8_file(path.c_str(), mode);
 }
 
 void handle_no_space()

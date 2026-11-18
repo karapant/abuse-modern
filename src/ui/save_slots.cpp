@@ -64,7 +64,7 @@ std::vector<SaveSlot> scan_save_slots(const std::string &directory)
 {
     std::vector<SaveSlot> slots;
     for (int n = 1; n <= 15; ++n) {
-        const auto path = std::filesystem::path(directory) / save_slot_filename(n);
+        const auto path = std::filesystem::u8path(directory) / save_slot_filename(n);
         std::error_code error;
         const bool exists = std::filesystem::exists(path, error);
         const auto state = error ? SaveSlotState::Unreadable : !exists ? SaveSlotState::Empty :

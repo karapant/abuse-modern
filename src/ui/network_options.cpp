@@ -39,7 +39,7 @@ bool save_network_options(const std::string &directory, const NetworkOptions &o,
 {
     if (!validate_network_options(o).empty()) return false;
     std::error_code error;
-    const auto path = std::filesystem::path(directory) / "config";
+    const auto path = std::filesystem::u8path(directory) / "config";
     std::filesystem::create_directories(path, error);
     if (error) return false;
     std::vector<std::pair<std::string, std::string>> files = {

@@ -1,3 +1,4 @@
+#include "file_path.h"
 //
 //  Abuse - dark 2D side-scrolling platform game
 //
@@ -276,7 +277,7 @@ uint8_t* load_hmi(char const *filename, uint32_t &data_size)
     uint8_t* input_buffer;
     uint8_t* output_buffer;
 
-    FILE* hmifile = fopen(filename, "rb");
+    FILE* hmifile = open_utf8_file(filename, "rb");
 
     if (hmifile == NULL)
         return NULL;

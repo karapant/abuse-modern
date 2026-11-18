@@ -22,19 +22,9 @@
 #   include "config.h"
 #endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/time.h>
-#include <time.h>
+#include <chrono>
 
 #include "timing.h"
-
-#ifdef __APPLE__
-// OSX 10.1 has nanosleep but no header for it!
-extern "C" {
-int nanosleep(const struct timespec *rqtp, struct timespec *rmtp);
-}
-#endif
 
 // Constructor
 //
@@ -49,10 +39,11 @@ time_marker::time_marker()
 //
 void time_marker::get_time()
 {
-    struct timeval tv = { 0, 0 };
-    gettimeofday( &tv, NULL );
-    seconds = tv.tv_sec;
-    micro_seconds = tv.tv_usec;
+    using namespace std::chrono;
+    const auto elapsed = steady_clock::now().time_since_epoch();
+    const auto whole_seconds = duration_cast<std::chrono::seconds>(elapsed);
+    seconds = whole_seconds.count();
+    micro_seconds = duration_cast<microseconds>(elapsed - whole_seconds).count();
 }
 
 //

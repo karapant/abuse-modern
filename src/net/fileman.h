@@ -44,7 +44,7 @@ class file_manager
     int32_t file_size() { return size; }
     int open_failure() { return sock==NULL; }
     ~remote_file();
-    int fd() { if (sock) return sock->get_fd(); else return -1; }
+    std::intptr_t fd() { if (sock) return sock->get_fd(); else return -1; }
   } ;
 
 
@@ -53,7 +53,7 @@ class file_manager
 
   int process_nfs_command(nfs_client *c);
   void secure_filename(char *filename, char *mode);
-  remote_file *find_rf(int fd);
+  remote_file *find_rf(std::intptr_t fd);
   net_protocol *proto;
   public :
 
@@ -62,12 +62,12 @@ class file_manager
   void add_nfs_client(net_socket *sock);
 
 
-  int rf_open_file(char const *&filename, char const *mode);
-  int32_t rf_tell(int fd);
-  int32_t rf_seek(int fd, int32_t offset);
-  int rf_read(int fd, void *buffer, size_t count);
-  int rf_close(int fd);
-  int32_t rf_file_size(int fd);
+  std::intptr_t rf_open_file(char const *&filename, char const *mode);
+  int32_t rf_tell(std::intptr_t fd);
+  int32_t rf_seek(std::intptr_t fd, int32_t offset);
+  int rf_read(std::intptr_t fd, void *buffer, size_t count);
+  int rf_close(std::intptr_t fd);
+  int32_t rf_file_size(std::intptr_t fd);
   void set_default_fs(net_address *def) { default_fs=def->copy(); }
   ~file_manager() { if (default_fs) delete default_fs; }
 } ;

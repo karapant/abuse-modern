@@ -16,6 +16,8 @@
 #include <strings.h>
 #endif
 #include <ctype.h>
+#include <chrono>
+#include <thread>
 
 #if (defined(__APPLE__) && !defined(__MACH__))
 #   include "GUSI.h"
@@ -43,6 +45,7 @@ static void net_log(char const *st, void *buf, long size)
   }
 
 
+    if (!log_file) return;
     fprintf(log_file,"%s%ld - ",st,size);
     int i;
     for (i=0; i<size; i++)
@@ -68,9 +71,9 @@ static void net_log(char const *st, void *buf, long size)
 int unix_fd::read(void *buf, int size, net_address **addr)
 //{{{
 {
-  int tr=::read(fd,(char*)buf,size);
+  int tr=::recv(fd,static_cast<char *>(buf),size,0);
 
-  net_log("tcpip.cpp: unix_fd::read:", (char *) buf, (long) size);
+  if (tr > 0) net_log("tcpip.cpp: unix_fd::read:", buf, tr);
 
   if (addr) *addr=NULL;
   return tr;
@@ -83,14 +86,14 @@ int unix_fd::write(void const *buf, int size, net_address *addr)
   net_log("tcpip.cpp: unix_fd::write:", (char *) buf, (long) size);
 
   if (addr) fprintf(stderr,"Cannot change address for this socket type\n");
-  return ::write(fd,(char*)buf,size);
+  return ::send(fd,static_cast<const char *>(buf),size,0);
 }
 //}}}///////////////////////////////////
 
 void unix_fd::broadcastable()
 //{{{
 {
-  int zz;
+  int zz = 1;
   if (setsockopt(fd,SOL_SOCKET,SO_BROADCAST,(char *)&zz,sizeof(zz))<0)
   {
     fprintf(stderr,"could not set socket option broadcast");
@@ -264,15 +267,15 @@ net_socket *tcpip_protocol::connect_to_server(net_address *addr, net_socket::soc
     return NULL;
   }
 
-  int socket_fd=socket(AF_INET,sock_type==net_socket::SOCKET_SECURE ? SOCK_STREAM : SOCK_DGRAM,0);
-  if (socket_fd<0)
+  socket_handle socket_fd=socket(AF_INET,sock_type==net_socket::SOCKET_SECURE ? SOCK_STREAM : SOCK_DGRAM,0);
+  if (socket_fd == invalid_socket)
   {
     fprintf(stderr,"unable to create socket (too many open files?)\n");
     return 0;
   }
 
 #if (defined(__APPLE__) && !defined(__MACH__))
-  int zz;
+  int zz = 1;
   if (setsockopt(socket_fd,SOL_SOCKET,SO_REUSEADDR,(char *)&zz,sizeof(zz))<0)
   {
     fprintf(stderr,"could not set socket option reuseaddr");
@@ -283,7 +286,7 @@ net_socket *tcpip_protocol::connect_to_server(net_address *addr, net_socket::soc
   if (connect(socket_fd, (struct sockaddr *) &((ip_address *)addr)->addr, sizeof( ((ip_address *)addr)->addr ))==-1)
   {
     fprintf(stderr,"unable to connect\n");
-    close(socket_fd);
+    close_socket(socket_fd);
     return 0;
   }
 
@@ -297,15 +300,15 @@ net_socket *tcpip_protocol::connect_to_server(net_address *addr, net_socket::soc
 net_socket *tcpip_protocol::create_listen_socket(int port, net_socket::socket_type sock_type)
 //{{{
 {
-  int socket_fd=socket(AF_INET,sock_type==net_socket::SOCKET_SECURE ? SOCK_STREAM : SOCK_DGRAM,0);
-  if (socket_fd<0)
+  socket_handle socket_fd=socket(AF_INET,sock_type==net_socket::SOCKET_SECURE ? SOCK_STREAM : SOCK_DGRAM,0);
+  if (socket_fd == invalid_socket)
   {
     fprintf(stderr,"unable to create socket (too many open files?)\n");
     return 0;
   }
 
 #if (defined(__APPLE__) && !defined(__MACH__))
-  int zz;
+  int zz = 1;
   if (setsockopt(socket_fd,SOL_SOCKET,SO_REUSEADDR,(char *)&zz,sizeof(zz))<0)
   {
     fprintf(stderr,"could not set socket option reuseaddr");
@@ -607,6 +610,10 @@ tcpip_protocol::tcpip_protocol()
   GUSISetup(GUSIwithSIOUXSockets);
   GUSISetup(GUSIwithPPCSockets);
 #endif
+#ifdef _WIN32
+  WSADATA data{};
+  sockets_available = ::WSAStartup(MAKEWORD(2, 2), &data) == 0;
+#endif
   FD_ZERO(&master_set);
   FD_ZERO(&master_write_set);
   FD_ZERO(&read_set);
@@ -618,40 +625,40 @@ tcpip_protocol::tcpip_protocol()
 int tcpip_protocol::select(int block)
 //{{{
 {
-  int ret;
-
-  memcpy(&read_set,&master_set,sizeof(master_set));
-  memcpy(&exception_set,&master_set,sizeof(master_set));
-  memcpy(&write_set,&master_write_set,sizeof(master_set));
-  if (block)
-  {
-    ret = 0;
-    while (ret == 0) {
-      // get number of sockets ready from system call
-      ret = ::select(FD_SETSIZE,&read_set,&write_set,&exception_set,NULL);
-
-      // remove notifier & responder events from the count of sockets selected
-      if (handle_notification())
-        ret--;
-      if (handle_responder())
-        ret--;
+  for (;;) {
+    read_set = master_set;
+    exception_set = master_set;
+    write_set = master_write_set;
+#ifdef _WIN32
+    // Winsock rejects select() if every descriptor set is empty.
+    if (!read_set.fd_count && !write_set.fd_count) {
+      if (block) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      return 0;
     }
+#endif
+    timeval timeout{};
+    int ready = ::select(FD_SETSIZE, &read_set, &write_set, &exception_set,
+                         block ? nullptr : &timeout);
+    if (ready <= 0) {
+      FD_ZERO(&read_set);
+      FD_ZERO(&write_set);
+      FD_ZERO(&exception_set);
+      return ready;
+    }
+    if (handle_notification()) --ready;
+    if (handle_responder()) --ready;
+    if (!block || ready != 0) return ready;
   }
-  else
-  {
-    timeval tv={ 0,0};
-    // get number of sockets ready from system call
-    ret = ::select(FD_SETSIZE,&read_set,&write_set,&exception_set,&tv);
-
-    // remove notifier & responder events from the count of sockets selected
-    if (handle_notification())
-      ret--;
-    if (handle_responder())
-      ret--;
-  }
-  return ret;
 }
 //}}}///////////////////////////////////
+
+tcpip_protocol::~tcpip_protocol()
+{
+    cleanup();
+#ifdef _WIN32
+    if (sockets_available) ::WSACleanup();
+#endif
+}
 
 void tcpip_protocol::cleanup()
 //{{{

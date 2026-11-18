@@ -37,7 +37,7 @@ bool valid(const Field &field, int value) { return value >= field.low && value <
 }
 bool settings_load(const std::string &path, GameSettings &settings)
 {
-    std::ifstream input(path);
+    std::ifstream input(std::filesystem::u8path(path));
     if (!input) return false;
     std::string line;
     while (std::getline(input, line)) {
@@ -56,7 +56,7 @@ bool settings_load(const std::string &path, GameSettings &settings)
 bool settings_write(const std::string &path, const GameSettings &settings)
 {
     for (const auto &field : fields) if (!valid(field, settings.*(field.member))) return false;
-    const auto temporary = path + ".tmp";
+    const auto temporary = std::filesystem::u8path(path + ".tmp");
     std::ofstream output(temporary, std::ios::trunc);
     if (!output) return false;
     output << "# Abuse Modern settings\n";
@@ -64,7 +64,7 @@ bool settings_write(const std::string &path, const GameSettings &settings)
     output.close();
     std::error_code error;
     if (!output) { std::filesystem::remove(temporary, error); return false; }
-    std::filesystem::rename(temporary, path, error);
+    std::filesystem::rename(temporary, std::filesystem::u8path(path), error);
     if (error) { std::filesystem::remove(temporary, error); return false; }
     return true;
 }

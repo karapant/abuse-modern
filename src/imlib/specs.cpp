@@ -29,6 +29,7 @@
 #include "image.h"
 #include "palette.h"
 #include "specs.h"
+#include "file_path.h"
 #include "dprint.h"
 
 char const *spec_types[] =
@@ -302,11 +303,11 @@ jFILE::jFILE(FILE *file_pointer)                       // assumes fp is at begin
 void jFILE::open_external(char const *filename, char const *mode, int flags)
 {
   int skip_size=0;
-  std::string resolved = spec_prefix && filename[0] != '/' ? std::string(spec_prefix) + filename : filename;
+  std::string resolved = spec_prefix && !rooted_filename(filename) ? std::string(spec_prefix) + filename : filename;
   // Runtime network configuration belongs to the user directory, even with read-only assets.
   if (save_spec_prefix && !strncmp(filename, "config/", 7)) {
     const std::string local = std::string(save_spec_prefix) + filename;
-    if ((flags & O_WRONLY) || ::access(local.c_str(), R_OK) == 0) resolved = local;
+    if ((flags & O_WRONLY) || readable_file(local.c_str())) resolved = local;
   }
   const char *tmp_name = resolved.c_str();
 
@@ -322,9 +323,9 @@ void jFILE::open_external(char const *filename, char const *mode, int flags)
     flags-=O_WRONLY;
     flags|=O_CREAT|O_RDWR;
 
-    fd=open(tmp_name,flags,S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+    fd=open_binary_file(tmp_name,flags,0666);
   } else
-    fd=open(tmp_name,flags);
+    fd=open_binary_file(tmp_name,flags,0666);
 
 //  umask(old_mask);
   if (fd>=0 && !skip_size)

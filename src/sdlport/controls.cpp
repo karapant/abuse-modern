@@ -55,7 +55,7 @@ void control_reset()
 }
 bool controls_load(const std::string &path)
 {
-    std::ifstream in(path);
+    std::ifstream in(std::filesystem::u8path(path));
     if (!in) return false;
     std::string line;
     while (std::getline(in, line)) {
@@ -74,7 +74,7 @@ bool controls_load(const std::string &path)
 }
 bool controls_save(const std::string &path)
 {
-    const auto temporary = path + ".tmp";
+    const auto temporary = std::filesystem::u8path(path + ".tmp");
     std::ofstream out(temporary, std::ios::trunc);
     if (!out) return false;
     for (int i = 0; i < control_count; ++i) out << "key" << i << '=' << control_binding(ControlAction(i)) << '\n';
@@ -83,7 +83,7 @@ bool controls_save(const std::string &path)
     out.close();
     if (!out) { std::filesystem::remove(temporary); return false; }
     std::error_code error;
-    std::filesystem::rename(temporary, path, error);
+    std::filesystem::rename(temporary, std::filesystem::u8path(path), error);
     if (error) std::filesystem::remove(temporary);
     return !error;
 }

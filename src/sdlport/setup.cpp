@@ -26,8 +26,14 @@
 #include <climits>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#else
+#include <strings.h>
+#endif
 #include "specs.h"
 #include "keys.h"
 #include "setup.h"
@@ -78,7 +84,7 @@ static int number(const char *text, int low, int high, const char *option)
 
 void createRCFile(const char *path)
 {
-    std::ofstream out(path);
+    std::ofstream out(std::filesystem::u8path(path));
     out << "; Abuse Modern configuration\n"
            "fullscreen=1\nmono=0\ngrabmouse=0\nscale=3\n"
            "left=a\nright=d\nup=w\ndown=s\n"
@@ -88,7 +94,7 @@ void createRCFile(const char *path)
 void readRCFile()
 {
     std::string path = std::string(get_save_filename_prefix()) + "abuserc";
-    std::ifstream in(path);
+    std::ifstream in(std::filesystem::u8path(path));
     if (!in) { createRCFile(path.c_str()); return; }
     std::string line;
     while (std::getline(in, line))
@@ -206,7 +212,7 @@ void setup(int argc, char **argv)
     parseCommandLine(argc, argv);
     if (const char *assets = getenv("ABUSE_PATH"); assets && *assets) set_filename_prefix(assets);
     const std::string startup = std::string(get_filename_prefix()) + "abuse.lsp";
-    if (!std::ifstream(startup)) {
+    if (!std::ifstream(std::filesystem::u8path(startup))) {
         fprintf(stderr, "Cannot find Abuse game data at %s. Use -datadir PATH.\n", get_filename_prefix());
         exit(EXIT_FAILURE);
     }

@@ -19,8 +19,12 @@
 #   include <sys/time.h>
 #   include <unistd.h>
 #elif defined _WIN32
-#   define WIN32_LEAN_AND_MEAN
+#   ifndef WIN32_LEAN_AND_MEAN
+#       define WIN32_LEAN_AND_MEAN
+#   endif
+#   pragma push_macro("ERROR")
 #   include <windows.h>
+#   pragma pop_macro("ERROR")
 #elif defined __CELLOS_LV2__
 #   include <sys/sys_time.h>
 #   include <sys/timer.h>

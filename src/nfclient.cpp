@@ -41,7 +41,7 @@ extern net_protocol *prot;
 class nfs_file : public bFILE
 {
   jFILE *local;
-  int nfs_fd;
+  std::intptr_t nfs_fd;
   int offset;
   public :
   nfs_file(char const *filename, char const *mode);

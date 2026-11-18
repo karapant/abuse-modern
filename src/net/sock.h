@@ -1,6 +1,8 @@
 #ifndef __SOCK_HPP_
 #define __SOCK_HPP_
 
+#include <cstdint>
+
 extern const char notify_signature[];
 extern const char notify_response[];
 
@@ -30,7 +32,7 @@ public:
   virtual int ready_to_write()                                     = 0;
   virtual int write(void const *buf, int size, net_address *addr=0)   = 0;
   virtual int read(void *buf, int size, net_address **addr=0)      = 0;
-  virtual int get_fd()                                             = 0;
+  virtual std::intptr_t get_fd()                                             = 0;
   virtual ~net_socket()              { ; }
   virtual void read_selectable()     { ; }
   virtual void read_unselectable()   { ; }

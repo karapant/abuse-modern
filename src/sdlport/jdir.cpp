@@ -22,63 +22,33 @@
 #   include "config.h"
 #endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <sys/types.h>
-#include <dirent.h>
-#include <unistd.h>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
 
 void get_directory(char *path, char **&files, int &tfiles, char **&dirs, int &tdirs)
 {
-    struct dirent *de;
-    files = NULL;
-    dirs = NULL;
-    tfiles = 0;
-    tdirs = 0;
-    DIR *d = opendir( path );
+    files = nullptr;
+    dirs = nullptr;
+    tfiles = tdirs = 0;
 
-    if( !d )
-        return;
+    std::error_code error;
+    std::filesystem::directory_iterator entries(std::filesystem::u8path(path), error);
+    if (error) return;
 
-    char **tlist = NULL;
-    int t = 0;
-    char curdir[200];
-    getcwd( curdir, 200 );
-    chdir( path );
-
-    do
-    {
-        de = readdir( d );
-        if( de )
-        {
-            t++;
-            tlist = (char **)realloc(tlist,sizeof(char *)*t);
-            tlist[t-1] = strdup(de->d_name);
-        }
-    } while( de );
-    closedir( d );
-
-    for( int i=0; i < t; i++ )
-    {
-        d = opendir( tlist[i] );
-        if( d )
-        {
-            tdirs++;
-            dirs = (char **)realloc(dirs,sizeof(char *)*tdirs);
-            dirs[tdirs-1] = strdup(tlist[i]);
-            closedir( d );
-        }
+    const auto append = [](char **&list, int &count, const char *name) {
+        list = static_cast<char **>(realloc(list, sizeof(char *) * (count + 1)));
+        list[count++] = strdup(name);
+    };
+    append(dirs, tdirs, ".");
+    append(dirs, tdirs, "..");
+    const std::filesystem::directory_iterator end;
+    for (; entries != end && !error; entries.increment(error)) {
+        const auto name = entries->path().filename().u8string();
+        std::error_code status_error;
+        if (entries->is_directory(status_error))
+            append(dirs, tdirs, name.c_str());
         else
-        {
-            tfiles++;
-            files = (char **)realloc(files,sizeof(char *)*tfiles);
-            files[tfiles-1] = strdup(tlist[i]);
-        }
-        free( tlist[i] );
+            append(files, tfiles, name.c_str());
     }
-    if( t )
-        free( tlist );
-    chdir( curdir );
 }

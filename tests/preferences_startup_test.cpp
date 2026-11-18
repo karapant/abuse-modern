@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Two processes verify the real startup path using an isolated configuration.
 #include <SDL3/SDL.h>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -24,10 +25,11 @@ int main(int argc, char **argv)
     require(argc == 2, "write/read test mode");
     const bool startup = std::string(argv[1]) == "defaults" || std::string(argv[1]) == "fullscreen";
     const auto root = std::filesystem::current_path() / (startup ? std::string("preferences-") + argv[1] + "-fixture" : "preferences-startup-fixture");
+    const auto asset_directory = root / std::filesystem::u8path(u8"Game data δοκιμή");
     const auto path = (root / "settings.cfg").string();
     if (startup) {
-        std::filesystem::remove_all(root); std::filesystem::create_directories(root / "assets");
-        std::ofstream(root / "assets/abuse.lsp");
+        std::filesystem::remove_all(root); std::filesystem::create_directories(asset_directory);
+        std::ofstream(asset_directory / "abuse.lsp");
         const bool restore_smoothing = std::string(argv[1]) == "fullscreen";
         if (restore_smoothing) {
             std::ofstream(root / "abuserc") << "fullscreen=0\n";
@@ -36,9 +38,23 @@ int main(int argc, char **argv)
             require(settings_write(path, old), "prepare previous windowed preference");
         }
         SDL_setenv_unsafe("ABUSE_SAVE_PATH", root.string().c_str(), 1); SDL_unsetenv_unsafe("ABUSE_PATH");
-        std::string assets = (root / "assets").string();
+        const auto assets = asset_directory.u8string();
         const char *args[] = {"preferences-startup-test", "-datadir", assets.c_str()};
         setup(3, const_cast<char **>(args));
+        const auto file_path = (asset_directory / "binary.spe").u8string();
+        const std::array<uint8_t, 4> expected{0x0d, 0x0a, 0x1a, 0xff};
+        {
+            jFILE output(file_path.c_str(), "wb");
+            require(!output.open_failure() && output.write(expected.data(), expected.size()) == expected.size() &&
+                    output.finish_writes(), "write binary data under a UTF-8 path");
+        }
+        {
+            jFILE input(file_path.c_str(), "rb");
+            std::array<uint8_t, 4> actual{};
+            require(!input.open_failure() && input.file_size() == expected.size() &&
+                    input.read(actual.data(), actual.size()) == actual.size() && actual == expected,
+                    "read the exact file bytes under a UTF-8 path");
+        }
         require(flags.fullscreen == 1 && xres == 480 && yres == 300, "new configurations start zoomed out in fullscreen");
         set_mode(0);
         int width, height;
@@ -57,8 +73,8 @@ int main(int argc, char **argv)
         return 0;
     }
     if (std::string(argv[1]) == "write") {
-        std::filesystem::remove_all(root); std::filesystem::create_directories(root / "assets");
-        std::ofstream(root / "assets/abuse.lsp");
+        std::filesystem::remove_all(root); std::filesystem::create_directories(asset_directory);
+        std::ofstream(asset_directory / "abuse.lsp");
         // Bad legacy settings must not prevent startup or override the new settings.
         std::ofstream(root / "abuserc") << "fullscreen=invalid\nscale=0\nmono=bad\ngrabmouse=-3\n";
         GameSettings saved;
@@ -68,7 +84,7 @@ int main(int argc, char **argv)
     }
     const auto saves = root.string() + "/";
     SDL_setenv_unsafe("ABUSE_SAVE_PATH", saves.c_str(), 1); SDL_unsetenv_unsafe("ABUSE_PATH");
-    std::string assets = (root / "assets").string();
+    const auto assets = asset_directory.u8string();
     const char *args[] = {"preferences-startup-test", "-datadir", assets.c_str(), "-windowed", "-view", "320x200", "-scale", "2",
                           "-sfx_volume", "127", "-music_volume", "0", "-difficulty", "extreme", "-nosound"};
     const int argument_count = int(sizeof(args) / sizeof(args[0]));

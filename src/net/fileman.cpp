@@ -27,6 +27,7 @@
 #include "netface.h"
 #include "ghandler.h"
 #include "specache.h"
+#include "file_path.h"
 
 extern net_protocol *prot;
 
@@ -38,6 +39,7 @@ file_manager::file_manager(int argc, char **argv, net_protocol *proto) : proto(p
   default_fs=NULL;
   no_security=0;
   nfs_list=NULL;
+  remote_list=NULL;
 
   int i;
   for (i=1; i<argc; i++)
@@ -185,6 +187,10 @@ void file_manager::secure_filename(char *filename, char *mode)
 {
   if (!no_security)
   {
+#ifdef _WIN32
+    // Network paths use forward slashes on all platforms.
+    if (strpbrk(filename, "\\:")) { filename[0]=0; return; }
+#endif
     if (filename[0]=='/') { filename[0]=0; return ; }
     int level=0;
     char *f=filename;
@@ -230,8 +236,10 @@ void file_manager::add_nfs_client(net_socket *sock)
   uint8_t size[2];
   char filename[300],mode[20],*mp;
   if (sock->read(size,2)!=2) { delete sock; return ; }
+  if (!size[0] || !size[1] || size[1] > sizeof(mode)) { delete sock; return; }
   if (sock->read(filename,size[0])!=size[0]) { delete sock; return ; }
   if (sock->read(mode,size[1])!=size[1]) { delete sock; return ; }
+  if (filename[size[0]-1] || mode[size[1]-1]) { delete sock; return; }
 
 
   secure_filename(filename,mode);  // make sure this filename isn't a security risk
@@ -247,11 +255,13 @@ void file_manager::add_nfs_client(net_socket *sock)
     mp++;
   }
 
-  int f=open(filename,flags,S_IRWXU | S_IRWXG | S_IRWXO);
+  int f=open_binary_file(filename,flags,0777);
 
   FILE *fp=fopen("open.log","ab");
-  fprintf(fp,"open file %s, fd=%d\n",filename,f);
-  fclose(fp);
+  if (fp) {
+    fprintf(fp,"open file %s, fd=%d\n",filename,f);
+    fclose(fp);
+  }
 
   if (f<0)
     f=-1;  // make sure this is -1
@@ -395,7 +405,7 @@ int32_t file_manager::remote_file::unbuffered_seek(int32_t offset)  // tell serv
 file_manager::remote_file::~remote_file()
 { r_close(NULL); }
 
-int file_manager::rf_open_file(char const *&filename, char const *mode)
+std::intptr_t file_manager::rf_open_file(char const *&filename, char const *mode)
 {
   net_address *fs_server_addr=NULL;
 
@@ -449,12 +459,9 @@ int file_manager::rf_open_file(char const *&filename, char const *mode)
     mode++;
   }
 
-  char tmp_name[200];
-  if (get_filename_prefix() && filename[0] != '/')
-    sprintf(tmp_name,"%s%s",get_filename_prefix(),filename);
-  else strcpy(tmp_name,filename);
-
-  int f=open(tmp_name,flags,S_IRWXU | S_IRWXG | S_IRWXO);
+  const char *prefix = get_filename_prefix();
+  const std::string path = prefix && !rooted_filename(filename) ? std::string(prefix) + filename : filename;
+  int f=open_binary_file(path.c_str(),flags,0777);
   if (f>=0)
   { close(f);
     return -2;
@@ -464,7 +471,7 @@ int file_manager::rf_open_file(char const *&filename, char const *mode)
 }
 
 
-file_manager::remote_file *file_manager::find_rf(int fd)
+file_manager::remote_file *file_manager::find_rf(std::intptr_t fd)
 {
   remote_file *r=remote_list;
   for (; r && r->sock->get_fd()!=fd; r=r->next)
@@ -474,33 +481,33 @@ file_manager::remote_file *file_manager::find_rf(int fd)
       fprintf(stderr,"bad sock\n");
     }
   }
-  if (!r) { fprintf(stderr,"Bad fd for remote file %d\n",fd); }
+  if (!r) { fprintf(stderr,"Bad fd for remote file %lld\n", static_cast<long long>(fd)); }
   return r;
 }
 
 
-int32_t file_manager::rf_tell(int fd)
+int32_t file_manager::rf_tell(std::intptr_t fd)
 {
   remote_file *rf=find_rf(fd);
   if (rf) return rf->unbuffered_tell();
   else return 0;
 }
 
-int32_t file_manager::rf_seek(int fd, int32_t offset)
+int32_t file_manager::rf_seek(std::intptr_t fd, int32_t offset)
 {
   remote_file *rf=find_rf(fd);
   if (rf) return rf->unbuffered_seek(offset);
   else return 0;
 }
 
-int file_manager::rf_read(int fd, void *buffer, size_t count)
+int file_manager::rf_read(std::intptr_t fd, void *buffer, size_t count)
 {
   remote_file *rf=find_rf(fd);
   if (rf) return rf->unbuffered_read(buffer,count);
   else return 0;
 }
 
-int file_manager::rf_close(int fd)
+int file_manager::rf_close(std::intptr_t fd)
 {
   remote_file *rf=remote_list,*last=NULL;
   while (rf && rf->sock->get_fd()!=fd) rf=rf->next;
@@ -512,12 +519,12 @@ int file_manager::rf_close(int fd)
     return 1;
   } else
   {
-    fprintf(stderr,"Bad fd for remote file %d\n",fd);
+    fprintf(stderr,"Bad fd for remote file %lld\n", static_cast<long long>(fd));
     return 0;
   }
 }
 
-int32_t file_manager::rf_file_size(int fd)
+int32_t file_manager::rf_file_size(std::intptr_t fd)
 {
   remote_file *rf=find_rf(fd);
   if (rf) return rf->file_size();

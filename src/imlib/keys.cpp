@@ -14,6 +14,11 @@
 
 #include <string.h>
 #include <ctype.h>
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#else
+#include <strings.h>
+#endif
 
 #include "keys.h"
 

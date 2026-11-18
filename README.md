@@ -5,7 +5,28 @@ key rebinding, a new HUD and dual-stick gamepad support. Original gameplay and m
 
 ![The same gameplay scene with Enhancements off and with all Enhancements on](resources/enhancements-comparison.png)
 
+[Download from GitHub Releases](https://github.com/karapant/abuse-modern/releases)
+
 Builds and tests on **Linux and macOS**. Windows is not currently supported.
+
+## Install from a release
+
+On Linux x86-64, extract the archive and run `./play` from its folder. On
+macOS, choose the Apple Silicon or Intel disk image and open
+**Play Abuse Modern.command**. The release packages include the engine and
+launcher. macOS uses ad-hoc signatures and may ask you to approve the download
+in System Settings.
+
+On the first launch, choose the Abuse 0.8 download from `abuse.zoy.org`,
+paste a direct HTTP(S) link to a compatible ZIP or tar archive, or point the
+launcher to a local archive or the folder containing `abuse.lsp`. If a
+download fails, the launcher offers the same choices again. It stores the
+imported files in your user data folder for future launches.
+
+Game data downloads directly to your machine. The original shareware
+release's public-domain grant excludes the copyrighted sounds and retail
+content. Release packages keep the game data and music patches separate.
+See the [original release notice](https://sources.debian.org/src/abuse/2.00-12/README).
 
 ## Build
 
@@ -24,7 +45,7 @@ CMake downloads pinned SDL3/SDL3_mixer sources if suitable versions are not inst
 The first configure needs internet access. On macOS, install Apple command-line
 tools first: `xcode-select --install`.
 
-## Run
+## Run a local build
 
 Download the assets from [Abuse downloads](http://abuse.zoy.org/wiki/download)
 and extract them separately. Use the directory containing `abuse.lsp`:

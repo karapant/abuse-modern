@@ -242,7 +242,7 @@ int NF_set_file_server(char const *name)
 }
 
 
-int NF_open_file(char const *filename, char const *mode)
+std::intptr_t NF_open_file(char const *filename, char const *mode)
 {
   if (prot)
     return fman->rf_open_file(filename,mode);
@@ -250,35 +250,35 @@ int NF_open_file(char const *filename, char const *mode)
 }
 
 
-long NF_close(int fd)
+long NF_close(std::intptr_t fd)
 {
   if (prot)
     return fman->rf_close(fd);
   else return 0;
 }
 
-long NF_read(int fd, void *buf, long size)
+long NF_read(std::intptr_t fd, void *buf, long size)
 {
   if (prot)
     return fman->rf_read(fd,buf,size);
   else return 0;
 }
 
-long NF_filelength(int fd)
+long NF_filelength(std::intptr_t fd)
 {
   if (prot)
     return fman->rf_file_size(fd);
   else return 0;
 }
 
-long NF_seek(int fd, long offset)
+long NF_seek(std::intptr_t fd, long offset)
 {
   if (prot)
     return fman->rf_seek(fd,offset);
   else return 0;
 }
 
-long NF_tell(int fd)
+long NF_tell(std::intptr_t fd)
 {
   if (prot)
     return fman->rf_tell(fd);

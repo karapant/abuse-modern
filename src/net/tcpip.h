@@ -8,39 +8,35 @@
  *  Jonathan Clark, or by Sam Hocevar.
  */
 
-#include <stdlib.h>
-#include <fcntl.h>
-#if defined HAVE_SYS_IOCTL_H
-#   include <sys/ioctl.h>
-#   include <sys/stat.h>
-#   include <sys/types.h>
-#include <signal.h>
-#endif
-#include <sys/types.h>
+#pragma once
 
-#if defined __APPLE__ && !defined __MACH__
-#   include "GUSI.h"
-#elif defined HAVE_NETINET_IN_H
+#include <cstdio>
+#include <cstring>
+
+#ifdef _WIN32
+#   pragma push_macro("ERROR")
+#   include <winsock2.h>
+#   pragma pop_macro("ERROR")
+using socket_handle = SOCKET;
+using socket_length = int;
+inline constexpr socket_handle invalid_socket = INVALID_SOCKET;
+inline void close_socket(socket_handle fd) { ::closesocket(fd); }
+#else
 #   include <netdb.h>
 #   include <netinet/in.h>
-#   include <stdio.h>
-#   include <string.h>
-#   include <sys/time.h>
-#   include <sys/ipc.h>
-#   include <sys/shm.h>
+#   include <sys/select.h>
 #   include <sys/socket.h>
 #   include <unistd.h>
-#   ifdef HAVE_BSTRING_H
-#       include <bstring.h>
-#   else
-#       include <sys/select.h>
-#   endif
+using socket_handle = int;
+using socket_length = socklen_t;
+inline constexpr socket_handle invalid_socket = -1;
+inline void close_socket(socket_handle fd) { ::close(fd); }
 #endif
 
 #include "sock.h"
 #include "isllist.h"
 
-extern fd_set master_set, master_write_set, read_set, exception_set, write_set;
+static_assert(sizeof(socket_handle) <= sizeof(std::intptr_t));
 
 class ip_address : public net_address
 {
@@ -84,6 +80,8 @@ public:
 class tcpip_protocol : public net_protocol
 {
 protected:
+  bool sockets_available = true;
+
   // Request Data
   struct RequestItem
   {
@@ -112,8 +110,14 @@ public :
   net_socket *connect_to_server(net_address *addr,
         net_socket::socket_type sock_type=net_socket::SOCKET_SECURE);
   net_socket *create_listen_socket(int port, net_socket::socket_type sock_type);
-  int installed() { return 1; }  // always part of unix
-  char const *name() { return "UNIX generic TCPIP"; }
+  int installed() { return sockets_available; }
+  char const *name() {
+#ifdef _WIN32
+    return "Windows TCP/IP";
+#else
+    return "UNIX generic TCPIP";
+#endif
+  }
   void cleanup();
   int select(int block);          // return # of sockets available for read & writing
 
@@ -124,7 +128,7 @@ public :
   // Find notifiers methods
   virtual net_address *find_address(int port, char *name);   // name should be a 256 byte buffer
   virtual void reset_find_list();
-  virtual ~tcpip_protocol() { cleanup(); }
+  virtual ~tcpip_protocol();
 } ;
 
 extern tcpip_protocol tcpip;
@@ -132,9 +136,9 @@ extern tcpip_protocol tcpip;
 class unix_fd : public net_socket
 {
   protected :
-  int fd;
+  socket_handle fd;
   public :
-  unix_fd(int fd) : fd(fd) { };
+  unix_fd(socket_handle fd) : fd(fd) { };
   virtual int error()                             { return FD_ISSET(fd,&tcpip.exception_set); }
   virtual int ready_to_read()                     { return FD_ISSET(fd,&tcpip.read_set); }
   virtual int ready_to_write()
@@ -149,12 +153,12 @@ class unix_fd : public net_socket
   virtual int write(void const *buf, int size, net_address *addr=NULL);
   virtual int read(void *buf, int size, net_address **addr);
 
-  virtual ~unix_fd()                            { read_unselectable();  write_unselectable(); close(fd); }
+  virtual ~unix_fd()                            { read_unselectable();  write_unselectable(); close_socket(fd); }
   virtual void read_selectable()                   { FD_SET(fd,&tcpip.master_set); }
   virtual void read_unselectable()                 { FD_CLR(fd,&tcpip.master_set); }
   virtual void write_selectable()                  { FD_SET(fd,&tcpip.master_write_set); }
   virtual void write_unselectable()                { FD_CLR(fd,&tcpip.master_write_set); }
-  int get_fd() { return fd; }
+  std::intptr_t get_fd() { return static_cast<std::intptr_t>(fd); }
 
   void broadcastable();
 } ;
@@ -163,7 +167,7 @@ class tcp_socket : public unix_fd
 {
   int listening;
   public :
-  tcp_socket(int fd) : unix_fd(fd) { listening=0; };
+  tcp_socket(socket_handle fd) : unix_fd(fd) { listening=0; };
   virtual int listen(int port)
   {
     sockaddr_in host;
@@ -189,9 +193,9 @@ class tcp_socket : public unix_fd
     if (listening)
     {
       struct sockaddr_in from;
-      socklen_t addr_len=sizeof(from);
-      int new_fd=::accept(fd,(sockaddr *)&from,&addr_len);
-      if (new_fd>=0)
+      socket_length addr_len=sizeof(from);
+      socket_handle new_fd=::accept(fd,(sockaddr *)&from,&addr_len);
+      if (new_fd != invalid_socket)
       {
         addr=new ip_address(&from);
         return new tcp_socket(new_fd);
@@ -206,25 +210,26 @@ class tcp_socket : public unix_fd
 class udp_socket : public unix_fd
 {
   public :
-  udp_socket(int fd) : unix_fd(fd) { };
+  udp_socket(socket_handle fd) : unix_fd(fd) { };
   virtual int read(void *buf, int size, net_address **addr)
   {
     int tr;
     if (addr)
     {
-      *addr=new ip_address;
-      socklen_t addr_size=sizeof(sockaddr_in);
-      tr=recvfrom(fd,buf,size,0, (sockaddr *) &((ip_address *)(*addr))->addr,&addr_size);
+      sockaddr_in from{};
+      socket_length addr_size=sizeof(from);
+      tr=recvfrom(fd,static_cast<char *>(buf),size,0,reinterpret_cast<sockaddr *>(&from),&addr_size);
+      *addr = tr < 0 ? nullptr : new ip_address(&from);
     } else
-      tr=recv(fd,buf,size,0);
+      tr=recv(fd,static_cast<char *>(buf),size,0);
     return tr;
   }
   virtual int write(void const *buf, int size, net_address *addr=NULL)
   {
     if (addr)
-      return sendto(fd,buf,size,0,(sockaddr *)(&((ip_address *)addr)->addr),sizeof(((ip_address *)addr)->addr));
+      return sendto(fd,static_cast<const char *>(buf),size,0,(sockaddr *)(&((ip_address *)addr)->addr),sizeof(((ip_address *)addr)->addr));
     else
-      return ::write(fd,(char*)buf,size);
+      return ::send(fd,static_cast<const char *>(buf),size,0);
   }
   virtual int listen(int port)
   {
