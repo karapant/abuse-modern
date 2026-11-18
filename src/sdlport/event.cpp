@@ -174,8 +174,14 @@ void event_handler::get_event(event &ev)
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP:
         // Reconstruct transitions from event order; polling state may already include later events.
-        if (input.type == SDL_EVENT_MOUSE_BUTTON_DOWN) held_buttons |= SDL_BUTTON_MASK(input.button.button);
-        else held_buttons &= ~SDL_BUTTON_MASK(input.button.button);
+        if (input.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            held_buttons |= SDL_BUTTON_MASK(input.button.button);
+            if (input.button.button == SDL_BUTTON_LEFT || input.button.button == SDL_BUTTON_RIGHT ||
+                input.button.button == SDL_BUTTON_MIDDLE)
+                controller_mouse_used();
+        } else {
+            held_buttons &= ~SDL_BUTTON_MASK(input.button.button);
+        }
         read_mouse(ev, input.button.x, input.button.y, held_buttons);
         ev.type = EV_MOUSE_BUTTON;
         break;

@@ -7,10 +7,10 @@ struct GameSettings
     int difficulty = -1; // inherit the game data's default until explicitly selected
     int fullscreen = 1, scale = 3;
     int wheel_weapons = 1;
-    int modern_hud = 1, enhanced_lighting = 1;
+    int modern_hud = 1, enhanced_lighting = 1, checkpoint_feedback = 1;
     int view_resolution = 1; // 480x300: more surroundings than the original view
 };
-enum class Setting { Effects, Music, Difficulty, Fullscreen, Scale, ViewResolution, WheelWeapons, ModernHud, EnhancedLighting };
+enum class Setting { Effects, Music, Difficulty, Fullscreen, Scale, ViewResolution, WheelWeapons, ModernHud, EnhancedLighting, CheckpointFeedback };
 extern GameSettings game_settings;
 extern GameSettings saved_settings;
 bool settings_load(const std::string &path, GameSettings &settings);

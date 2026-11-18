@@ -827,15 +827,22 @@ static void text_enhancements()
         menu.items = {
             {1, "Modern HUD", game_settings.modern_hud ? "[x]" : "[ ]", true, true},
             {2, "Enhanced Lighting", game_settings.enhanced_lighting ? "[x]" : "[ ]", true, true},
+            {3, "Checkpoint Feedback", game_settings.checkpoint_feedback ? "[x]" : "[ ]", true, true},
             {ID_CANCEL, "Back", ""}
         };
         const auto action = run_text_menu(menu, "ENHANCEMENTS", "ENTER TO TOGGLE   ESC BACK");
         if (action.id == -1 || action.id == ID_CANCEL) return;
-        const bool hud = action.id == 1;
-        if (!save_setting(hud ? Setting::ModernHud : Setting::EnhancedLighting,
-                          !(hud ? game_settings.modern_hud : game_settings.enhanced_lighting))) {
+        Setting setting;
+        bool enabled;
+        switch (action.id) {
+        case 1: setting = Setting::ModernHud; enabled = game_settings.modern_hud; break;
+        case 2: setting = Setting::EnhancedLighting; enabled = game_settings.enhanced_lighting; break;
+        case 3: setting = Setting::CheckpointFeedback; enabled = game_settings.checkpoint_feedback; break;
+        default: continue;
+        }
+        if (!save_setting(setting, !enabled)) {
             text_notice("SAVE FAILED", "Could not save enhancement setting.");
-        } else if (hud) {
+        } else if (setting == Setting::ModernHud) {
             recalc_local_view_space();
             sbar.need_refresh();
         }

@@ -62,6 +62,7 @@
 #include "chat.h"
 #include "demo.h"
 #include "netcfg.h"
+#include "ui/checkpoint_marker.h"
 
 #define SHIFT_RIGHT_DEFAULT 0
 #define SHIFT_DOWN_DEFAULT 30
@@ -727,6 +728,37 @@ static void post_render()
   }
 }
 
+static void draw_checkpoint_markers(view *v, int world_x, int world_y, int scale)
+{
+    if (!game_settings.checkpoint_feedback || !v->focus || !v->local_player() ||
+        !player_list || player_list->next || (dev & (EDIT_MODE | MAP_MODE)) ||
+        !(dev & DRAW_PEOPLE_LAYER))
+        return;
+
+    const uint8_t colors[] = {0, uint8_t(pal->find_closest(22, 23, 27)),
+        uint8_t(pal->find_closest(165, 108, 36)), uint8_t(pal->find_closest(206, 163, 89))};
+    for (auto *console = current_level->first_active_object(); console; console = console->next_active) {
+        if (strcmp(object_names[console->otype], "RESTART_POSITION")) continue;
+        if (abs(console->x - v->focus->x) > 144 || abs(console->y - v->focus->y) > 96) continue;
+
+        const int x = v->cx1 + (console->x - world_x) * scale;
+        const int foot = v->cy1 + (console->y - world_y) * scale;
+        const int top = foot - console->picture()->Size().y * scale;
+        if (x < v->cx1 || x > v->cx2 || foot < v->cy1 || top > v->cy2) continue;
+
+        const int left = x - checkpoint_marker_size / 2;
+        const int y0 = std::max(v->cy1, top - checkpoint_marker_size - 2);
+        for (int row = 0; row < checkpoint_marker_size && y0 + row <= v->cy2; ++row) {
+            auto *dest = screen->scan_line(y0 + row);
+            for (int col = 0; col < checkpoint_marker_size; ++col) {
+                const int sx = left + col;
+                const auto pixel = checkpoint_marker[row * checkpoint_marker_size + col];
+                if (pixel && sx >= v->cx1 && sx <= v->cx2) dest[sx] = colors[pixel];
+            }
+        }
+    }
+}
+
 void Game::draw_map(view *v, int interpolate)
 {
   backtile *bt;
@@ -1162,6 +1194,8 @@ void Game::draw_map(view *v, int interpolate)
                                // ... not every machine will draw the same thing
 
   post_render();
+  if (state == RUN_STATE)
+    draw_checkpoint_markers(v, xoff, yoff, old_screen ? 2 : 1);
 
   screen->SetClip(cx1, cy1, cx2 + 1, cy2 + 1);
 
@@ -2054,13 +2088,10 @@ void Game::step()
     {
       if(f->focus)
       {
-    f->update_scroll();
-    int w, h;
-
-    w=(f->cx2 - f->cx1 + 1);
-    h=(f->cy2 - f->cy1 + 1);
-        total_active += current_level->add_actives(f->xoff()-w / 4, f->yoff()-h / 4,
-                         f->xoff()+w + w / 4, f->yoff()+h + h / 4);
+        f->update_scroll();
+        int32_t left, top, right, bottom;
+        f->activation_area(left, top, right, bottom);
+        total_active += current_level->add_actives(left, top, right, bottom);
       }
     }
   }

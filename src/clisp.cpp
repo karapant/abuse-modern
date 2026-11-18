@@ -1893,7 +1893,8 @@ long c_caller(long number, void *args)
     case 223 :
     {
       char *fn=lstring_value(CAR(args));
-      current_level->save(fn,1);
+      if (current_level->save(fn, 1) && game_settings.checkpoint_feedback)
+        the_game->show_help("Game saved");
     } break;
     case 224 :
     {

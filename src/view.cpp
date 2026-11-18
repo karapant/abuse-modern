@@ -160,6 +160,21 @@ int32_t view::interpolated_yoff()
 }
 
 
+void view::activation_area(int32_t &left, int32_t &top, int32_t &right, int32_t &bottom)
+{
+  // Keep the original gameplay area as the camera zoom and HUD change.
+  // Draw culling uses the real viewport separately.
+  const bool editor = dev & EDIT_MODE;
+  const int width = editor ? cx2 - cx1 + 1 : 317;
+  const int height = editor ? cy2 - cy1 + 1 : (total_weapons ? 163 : 196);
+  const int x = editor ? xoff() : std::max(0, last_x - width / 2 + shift_right + pan_x);
+  const int y = editor ? yoff() : std::max(0, last_y - height / 2 - shift_down + pan_y);
+  left = x - width / 4;
+  top = y - height / 4;
+  right = x + width + width / 4;
+  bottom = y + height + height / 4;
+}
+
 void view::update_scroll()
 {
   if (focus)

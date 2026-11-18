@@ -17,6 +17,7 @@
 #include "level.h"
 #include "ui/textmenu.h"
 #include "ui/save_slots.h"
+#include "ui/checkpoint_marker.h"
 #include "sdlport/controls.h"
 #include "sdlport/preferences.h"
 #include "clisp.h"
@@ -32,11 +33,12 @@
 #include "chars.h"
 #include "transimage.h"
 #include "loader2.h"
+#include "nfserver.h"
 #include <cstring>
 
 int abuse_main(int, char **);
 static int phase = 0;
-static bool one_stick = false, warned = false, wide_view = false;
+static bool one_stick = false, warned = false, wide_view = false, opening_levels = false;
 static SDL_Joystick *virtual_pad = nullptr;
 static SDL_JoystickID virtual_id = 0;
 static std::atomic<bool> reached{false}, finished{false};
@@ -243,6 +245,50 @@ static void snapshot(const char *name)
     put_image(screen, 0, 0); update_window_done();
     require(platform_screenshot((root / name).c_str()), "capture actual engine menu");
 }
+static int save_notices = 0;
+extern "C" void __real__ZN4Game9show_helpEPKc(Game *, const char *);
+extern "C" void __wrap__ZN4Game9show_helpEPKc(Game *game, const char *text)
+{
+    if (!strcmp(text, "Game saved")) ++save_notices;
+    __real__ZN4Game9show_helpEPKc(game, text);
+}
+
+static void invoke_save(const char *expression)
+{
+    LObject::Compile(expression)->Eval();
+}
+
+static void check_checkpoint_marker(view *v)
+{
+    int type = 0;
+    while (type < total_objects && strcmp(object_names[type], "RESTART_POSITION")) ++type;
+    require(type < total_objects, "stock save console type exists");
+    auto *console = create(type, v->focus->x + 56, v->focus->y + 36, 0);
+    current_level->add_object(console);
+    current_level->unactivate_all();
+    current_level->add_drawables(v->xoff(), v->yoff(), v->xoff() + xres, v->yoff() + yres);
+    const int left = v->cx1 + console->x - v->xoff() - checkpoint_marker_size / 2;
+    const int top = std::max(v->cy1, v->cy1 + console->y - v->yoff() -
+                                   console->picture()->Size().y - checkpoint_marker_size - 2);
+    require(left >= v->cx1 && left + checkpoint_marker_size <= v->cx2 &&
+            top + checkpoint_marker_size <= v->cy2, "checkpoint fixture is inside the viewport");
+    the_game->draw(0);
+    const int amber = pal->find_closest(165, 108, 36);
+    const auto count_amber = [&] {
+        int pixels = 0;
+        for (int y = top; y < top + checkpoint_marker_size; ++y)
+            for (int x = left; x < left + checkpoint_marker_size; ++x)
+                if (screen->Pixel(vec2i(x, y)) == amber) ++pixels;
+        return pixels;
+    };
+    const int marked = count_amber();
+    snapshot("checkpoint-marker.bmp");
+    game_settings.checkpoint_feedback = 0;
+    the_game->draw(0);
+    require(marked > 15 && count_amber() < marked, "disabling checkpoint feedback hides the in-world badge");
+    game_settings.checkpoint_feedback = 1;
+    current_level->delete_object(console);
+}
 extern "C" void __real__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextMenu *, image &, JCFont &, palette &, const char *, const char *, const char *);
 extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextMenu *menu, image &target, JCFont &font, palette &palette, const char *title, const char *section, const char *hint)
 {
@@ -264,6 +310,11 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         } else if (page == "QUIT GAME?") {
             if (selected(menu, "Quit to desktop")) { enter(); phase = 102; } else choose(menu, "Quit to desktop");
         }
+        return;
+    }
+    if (opening_levels && phase == 0 && page == "MAIN MENU") {
+        if (selected(menu, "New game")) { enter(); phase = 200; }
+        else choose(menu, "New game");
         return;
     }
     if (phase == 0 && page == "MAIN MENU") {
@@ -341,8 +392,8 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         if (selected(menu, "Enhancements")) { enter(); phase = 64; }
         else choose(menu, "Enhancements");
     } else if (phase == 64 && page == "ENHANCEMENTS") {
-        require(menu->items.at(0).value == "[x]" && menu->items.at(1).value == "[x]",
-                "both enhancement checkboxes are checked by default");
+        require(menu->items.at(0).value == "[x]" && menu->items.at(1).value == "[x]" &&
+                menu->items.at(2).value == "[x]", "all enhancement checkboxes are checked by default");
         if (selected(menu, "Modern HUD")) { enter(); phase = 65; }
         else choose(menu, "Modern HUD");
     } else if (phase == 65 && page == "ENHANCEMENTS") {
@@ -353,11 +404,15 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         else choose(menu, "Enhanced Lighting");
     } else if (phase == 66 && page == "ENHANCEMENTS") {
         if (game_settings.enhanced_lighting) return;
+        if (selected(menu, "Checkpoint Feedback")) { enter(); phase = 68; }
+        else choose(menu, "Checkpoint Feedback");
+    } else if (phase == 68 && page == "ENHANCEMENTS") {
+        if (game_settings.checkpoint_feedback) return;
         GameSettings reloaded;
-        require(menu->items.at(1).value == "[ ]" &&
+        require(menu->items.at(1).value == "[ ]" && menu->items.at(2).value == "[ ]" &&
                 settings_load((root / "settings.cfg").string(), reloaded) &&
-                !reloaded.modern_hud && !reloaded.enhanced_lighting,
-                "both disabled preferences are saved from the pause menu");
+                !reloaded.modern_hud && !reloaded.enhanced_lighting && !reloaded.checkpoint_feedback,
+                "disabled enhancements are saved from the pause menu");
         escape(); phase = 67;
     } else if (phase == 67 && page == "SETTINGS") {
         escape(); phase = 63;
@@ -385,8 +440,136 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
     }
 }
 extern "C" void __real__ZN4view9get_inputEv(view *);
+static void check_opening_level(view *v)
+{
+    require(xres == 640 && yres == 360, "opening-level check runs at 640x360");
+    const bool tutorial = std::string(current_level->name()) == "levels/level00.spe";
+    const bool first_level = std::string(current_level->name()) == "levels/level01.spe";
+    require(tutorial || first_level, "load the original first two opening maps");
+
+    int32_t left, top, right, bottom, narrow_left, narrow_top, narrow_right, narrow_bottom;
+    v->activation_area(left, top, right, bottom);
+    const int saved_right = v->cx2, saved_bottom = v->cy2;
+    v->cx2 = v->cx1 + 316;
+    v->cy2 = v->cy1 + 162;
+    v->activation_area(narrow_left, narrow_top, narrow_right, narrow_bottom);
+    v->cx2 = saved_right;
+    v->cy2 = saved_bottom;
+    require(left == narrow_left && top == narrow_top && right == narrow_right && bottom == narrow_bottom &&
+            right - left < xres, "enemy activation area stays fixed when the view zooms out");
+
+    const auto mouse = [&](Uint32 type, int gx, int gy) {
+        SDL_Event click{};
+        click.type = type;
+        click.button.button = SDL_BUTTON_LEFT;
+        require(SDL_RenderCoordinatesToWindow(platform_renderer(), float(gx), float(gy),
+                                              &click.button.x, &click.button.y), "map mouse to window");
+        require(SDL_PushEvent(&click), "inject edge aim mouse click");
+    };
+    const auto read_input = [&] {
+        the_game->get_input();
+        __real__ZN4view9get_inputEv(v);
+        require(base->packet.packet_size() >= 7, "game produced player input");
+        const auto *data = base->packet.packet_data() + base->packet.packet_size() - 7;
+        require(data[0] == SCMD_SET_INPUT, "player input ends with aim and action bits");
+        return std::array<int, 3>{data[2], int16_t(data[3] | (data[4] << 8)),
+                               int16_t(data[5] | (data[6] << 8))};
+    };
+    const auto steer = [&](int axis, int value) {
+        require(SDL_SetJoystickVirtualAxis(virtual_pad, SDL_GamepadAxis(axis), value), "send virtual stick input");
+        SDL_UpdateJoysticks();
+    };
+    static int step = 0;
+    static int start_x = 0;
+    static bool saw_player_shot = false;
+    if (step == 0) {
+        saw_player_shot = false;
+        start_x = v->focus->x;
+        controller_focus(true);
+        SDL_FlushEvent(SDL_EVENT_MOUSE_MOTION);
+        controller_state(); // confirm the controls have returned to neutral after the menu
+        steer(SDL_GAMEPAD_AXIS_RIGHTX, 26000);
+        steer(SDL_GAMEPAD_AXIS_RIGHTY, -26000);
+        steer(SDL_GAMEPAD_AXIS_LEFTX, 25000);
+        steer(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 32767);
+        const auto input = read_input();
+        require((input[0] & 33) == 33 && input[1] > v->focus->x && input[2] < v->focus->y,
+                "dual sticks aim diagonally while moving and firing on the original map");
+        ++step;
+        return;
+    }
+    if (step < 9) {
+        if (!saw_player_shot) {
+            for (auto *object = current_level->first_object(); object; object = object->next) {
+                if (strcmp(object_names[object->otype], "SHOTGUN_BULLET") ||
+                    !object->total_objects() || object->get_object(0) != v->focus) continue;
+                saw_player_shot = true;
+                snapshot(tutorial ? "tutorial-shot.bmp" : "first-level-shot.bmp");
+                break;
+            }
+        }
+        ++step;
+        read_input();
+        return;
+    }
+    const int gx = tutorial ? v->cx1 + 2 : v->cx2 - 2;
+    const int gy = v->cy1 + 2;
+    if (step == 9) {
+        require(v->focus->x > start_x, "controller moves the player through the opening room");
+        require(saw_player_shot, "firing the starter weapon spawns a projectile in the opening room");
+        steer(SDL_GAMEPAD_AXIS_LEFTX, 0);
+        steer(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
+        SDL_Event key_down{};
+        key_down.type = SDL_EVENT_KEY_DOWN;
+        key_down.key.key = SDLK_A;
+        key_down.key.scancode = SDL_SCANCODE_A;
+        require(SDL_PushEvent(&key_down), "inject keyboard movement");
+        int32_t expected_x, expected_y;
+        the_game->mouse_to_game(gx, gy, expected_x, expected_y, v);
+        mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, gx, gy);
+        const auto input = read_input();
+        if ((input[0] & 34) != 34 || abs(input[1] - expected_x) > 1 || abs(input[2] - expected_y) > 1)
+            fprintf(stderr, "Opening input flags %d aim %d,%d expected %d,%d\n",
+                    input[0], input[1], input[2], expected_x, expected_y);
+        require((input[0] & 34) == 34 && abs(input[1] - expected_x) <= 1 && abs(input[2] - expected_y) <= 1,
+                "keyboard moves while a click takes aim back from the held stick at the viewport edge");
+        start_x = v->focus->x;
+        ++step;
+        return;
+    }
+    if (step < 18) {
+        ++step;
+        read_input();
+        return;
+    }
+    require(v->focus->x < start_x, "keyboard moves the player through the opening room");
+    SDL_Event key_up{};
+    key_up.type = SDL_EVENT_KEY_UP;
+    key_up.key.key = SDLK_A;
+    key_up.key.scancode = SDL_SCANCODE_A;
+    require(SDL_PushEvent(&key_up), "release keyboard movement");
+    mouse(SDL_EVENT_MOUSE_BUTTON_UP, gx, gy);
+    steer(SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    steer(SDL_GAMEPAD_AXIS_RIGHTY, 0);
+    read_input();
+    step = 0;
+
+    if (tutorial) {
+        char next_map[] = "levels/level01.spe";
+        the_game->request_level_load(next_map);
+        phase = 201;
+    } else {
+        phase = 18;
+        escape();
+    }
+}
 extern "C" void __wrap__ZN4view9get_inputEv(view *v)
 {
+    if (opening_levels && (phase == 200 || phase == 201) && the_game &&
+        the_game->state == RUN_STATE && v->focus) {
+        check_opening_level(v);
+        return;
+    }
     __real__ZN4view9get_inputEv(v);
     if (!the_game || the_game->state != RUN_STATE || !v->focus) return;
     if (phase == 14) {
@@ -422,7 +605,11 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         SDL_SetJoystickVirtualAxis(virtual_pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
         SDL_UpdateJoysticks();
         v->focus->set_hp(73);
-        require(current_level->save("save0015.spe", 1) == 1, "serialize live game state");
+        check_checkpoint_marker(v);
+        invoke_save("(save_game \"save0015.spe\")");
+        require(save_notices == 1, "the checkpoint save command confirms a successful write");
+        invoke_save("(save_game \"missing/checkpoint.spe\")");
+        require(save_notices == 1, "a save that cannot open its destination gives no success message");
         require(scan_save_slots(root.string()).at(14).state == SaveSlotState::Saved, "real save recognized by text slot picker");
         phase = 21;
         require(load_game(1, "SAVE") == 15 && phase == 27, "checkpoint slot picker cancels then confirms overwrite of slot 15");
@@ -440,6 +627,9 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         require(v->focus->hp() == 73, "load dialog restores saved player health");
         require(v->cx2 < xres && v->cy2 < yres, "save loading adapts camera to current live resolution");
         check_hud();
+        invoke_save("(save_game \"silent-checkpoint.spe\")");
+        require(std::filesystem::exists(root / "silent-checkpoint.spe") && save_notices == 1,
+                "switching checkpoint feedback off suppresses the notice without preventing saving");
         phase = 18; escape();
     }
 }
@@ -448,11 +638,12 @@ int main(int argc, char **argv)
     require(argc >= 2, "supply original game data path");
     one_stick = argc > 2 && std::string(argv[2]) == "--one-stick";
     wide_view = argc > 2 && std::string(argv[2]) == "--wide-view";
-    root = std::filesystem::current_path() / (wide_view ? "engine-integration-wide" : one_stick ? "engine-integration-one-stick" : "engine-integration-fixture");
+    opening_levels = argc > 2 && std::string(argv[2]) == "--opening-levels";
+    root = std::filesystem::current_path() / (opening_levels ? "engine-opening-levels" : wide_view ? "engine-integration-wide" : one_stick ? "engine-integration-one-stick" : "engine-integration-fixture");
     std::filesystem::remove_all(root); std::filesystem::create_directories(root);
     GameSettings initial;
     initial.fullscreen = 0;
-    initial.view_resolution = wide_view ? 3 : 0;
+    initial.view_resolution = (wide_view || opening_levels) ? 3 : 0;
     initial.difficulty = 2;
     require(settings_write((root / "settings.cfg").string(), initial), "prepare persistent engine difficulty");
     std::ofstream(root / "gamma.lsp") << "(setq darkest_gray 16)\n";
@@ -491,6 +682,10 @@ int main(int argc, char **argv)
     require(result == 0 && phase == (one_stick ? 102 : 20), "complete actual-engine UI flow");
     SDL_CloseJoystick(virtual_pad); SDL_DetachVirtualJoystick(virtual_id);
     if (one_stick) { puts("Actual-engine one-stick warning and disabled gameplay checks passed."); return 0; }
+    if (opening_levels) {
+        puts("Original opening maps passed at 640x360 with mouse, keyboard and virtual controller.");
+        return 0;
+    }
     control_reset(); require(controls_load((root / "controls.cfg").string()) && keys.left == 'j', "persisted UI binding reloads");
     puts("Actual-engine integration passed: key rebind, network error/cancel, slot 15 save/load, short pause tap and quit.");
 }

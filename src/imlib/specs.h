@@ -96,6 +96,7 @@ class bFILE     // base file type which other files should be derived from (jFIL
   unsigned char *rbuf,*wbuf;
   unsigned long rbuf_start,rbuf_end,rbuf_size,
                 wbuf_end,wbuf_size;                // can't seek while writing!
+  bool write_failed = false;
   int flush_writes();                             // returns 0 on failure, else # of bytes written
 
   virtual int unbuffered_read(void *buf, size_t count)  = 0;
@@ -109,6 +110,7 @@ class bFILE     // base file type which other files should be derived from (jFIL
   bFILE();
   virtual int open_failure() = 0;
   int read(void *buf, size_t count);        // returns number of bytes read, calls unbuffer_read
+  bool finish_writes();                     // Flush buffered output and report any short write.
   int write(void const *buf, size_t count); // returns number of bytes written
   int seek(long offset, int whence);        // whence=SEEK_SET, SEEK_CUR, SEEK_END, ret=0=success
   int tell();

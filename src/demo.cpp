@@ -1,3 +1,4 @@
+// Modified for Abuse Modern. Modifications licensed GPL-2.0-or-later.
 /*
  *  Abuse - dark 2D side-scrolling platform game
  *  Copyright (c) 1995 Crack dot Com
@@ -53,9 +54,14 @@ void get_event(event &ev)
     } break;
   }
 
-  last_demo_mx=ev.mouse_move.x;
-  last_demo_my=ev.mouse_move.y;
-  last_demo_mbut=ev.mouse_button;
+  // Keyboard and controller events can carry a polled cursor position.
+  // Keep the last real mouse position until another mouse event arrives.
+  if (ev.type == EV_MOUSE_MOVE || ev.type == EV_MOUSE_BUTTON)
+  {
+    last_demo_mx=ev.mouse_move.x;
+    last_demo_my=ev.mouse_move.y;
+    last_demo_mbut=ev.mouse_button;
+  }
   idle_ticks=0;
 }
 

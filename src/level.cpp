@@ -2325,7 +2325,14 @@ int level::save(char const *filename, int save_all)
                 write_thumb_nail( fp,screen );
             }
 
+            const bool saved = fp->finish_writes();
             delete fp;
+            if (!saved) {
+                the_game->show_help("Unable to write save file");
+                delete_object_list(players);
+                delete_object_list(objs);
+                return 0;
+            }
 #if (defined(__MACH__) || !defined(__APPLE__))
             chmod( name, S_IRWXU | S_IRWXG | S_IRWXO );
 #endif

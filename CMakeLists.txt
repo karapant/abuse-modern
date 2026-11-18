@@ -85,11 +85,13 @@ if(BUILD_TESTING)
         target_link_libraries(engine-integration-test PRIVATE abuse_game)
         target_link_options(engine-integration-test PRIVATE
             "-Wl,--wrap=_ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_"
-            "-Wl,--wrap=_ZN4view9get_inputEv")
+            "-Wl,--wrap=_ZN4view9get_inputEv"
+            "-Wl,--wrap=_ZN4Game9show_helpEPKc")
         add_test(NAME engine-integration COMMAND engine-integration-test "${ABUSE_TEST_ASSET_DIR}")
         add_test(NAME engine-one-stick COMMAND engine-integration-test "${ABUSE_TEST_ASSET_DIR}" --one-stick)
         add_test(NAME engine-wide-view COMMAND engine-integration-test "${ABUSE_TEST_ASSET_DIR}" --wide-view)
-        set_tests_properties(engine-integration engine-one-stick engine-wide-view PROPERTIES TIMEOUT 90
+        add_test(NAME engine-opening-levels COMMAND engine-integration-test "${ABUSE_TEST_ASSET_DIR}" --opening-levels)
+        set_tests_properties(engine-integration engine-one-stick engine-wide-view engine-opening-levels PROPERTIES TIMEOUT 90
             ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_RENDER_DRIVER=software;SDL_AUDIO_DRIVER=dummy")
     endif()
     foreach(manager apt dnf pacman zypper brew)

@@ -163,13 +163,21 @@ int bFILE::flush_writes()
   if (wbuf_end!=0)
   {
     unsigned long ret=unbuffered_write(wbuf,wbuf_end);
-    if (ret!=wbuf_end && no_space_handle_fun)
-      no_space_handle_fun();
+    if (ret != wbuf_end) {
+      write_failed = true;
+      if (no_space_handle_fun) no_space_handle_fun();
+    }
 
     wbuf_end=0;
     return ret;
   }
   return 0;
+}
+
+bool bFILE::finish_writes()
+{
+  flush_writes();
+  return !write_failed;
 }
 
 int bFILE::read(void *buf, size_t count)       // returns number of bytes read, calls unbuffer_read
@@ -229,8 +237,10 @@ int bFILE::write(void const *buf, size_t count)      // returns number of bytes 
   } else
   {
     unsigned long ret=unbuffered_write(buf,count);
-    if (ret!=count && no_space_handle_fun)
-      no_space_handle_fun();
+    if (ret != count) {
+      write_failed = true;
+      if (no_space_handle_fun) no_space_handle_fun();
+    }
   }
   return 0;
 }
