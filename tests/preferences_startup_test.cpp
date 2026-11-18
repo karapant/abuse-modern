@@ -28,9 +28,11 @@ int main(int argc, char **argv)
     if (startup) {
         std::filesystem::remove_all(root); std::filesystem::create_directories(root / "assets");
         std::ofstream(root / "assets/abuse.lsp");
-        if (std::string(argv[1]) == "fullscreen") {
+        const bool restore_smoothing = std::string(argv[1]) == "fullscreen";
+        if (restore_smoothing) {
             std::ofstream(root / "abuserc") << "fullscreen=0\n";
             GameSettings old; old.fullscreen = 0;
+            old.smooth_pixels = 1;
             require(settings_write(path, old), "prepare previous windowed preference");
         }
         SDL_setenv_unsafe("ABUSE_SAVE_PATH", root.string().c_str(), 1); SDL_unsetenv_unsafe("ABUSE_PATH");
@@ -44,6 +46,13 @@ int main(int argc, char **argv)
         const auto *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(platform_window()));
         require(mode && width == mode->w && height == mode->h && SDL_GetWindowFullscreenMode(platform_window()) == nullptr,
                 "fullscreen uses native desktop pixels without an exclusive display mode");
+        require(game_settings.smooth_pixels == restore_smoothing, "restore saved pixel filter at startup");
+        const auto screenshot = (root / "startup.bmp").string();
+        require(platform_screenshot(screenshot.c_str()), "capture the startup frame");
+        SDL_Surface *frame = SDL_LoadBMP(screenshot.c_str());
+        const int scale = restore_smoothing ? 2 : 1;
+        require(frame && frame->w == xres * scale && frame->h == yres * scale, "startup uses the configured pixel filter");
+        SDL_DestroySurface(frame);
         close_graphics(); std::filesystem::remove_all(root);
         return 0;
     }

@@ -85,9 +85,7 @@ class view
   int32_t x_center();                        // center of attention
   int32_t y_center();
   int32_t xoff();                            // top left and right corner of the screen
-  int32_t interpolated_xoff();
   int32_t yoff();
-  int32_t interpolated_yoff();
   void activation_area(int32_t &left, int32_t &top, int32_t &right, int32_t &bottom);
   int drawable();                        // network viewables are not drawable
   int local_player();                    //  just in case I ever need non-viewable local players.

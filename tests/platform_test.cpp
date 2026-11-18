@@ -220,6 +220,27 @@ int main(int argc, char **argv)
     require(!(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN) && flags.fullscreen == 0 && game_settings.fullscreen == 0,
             "failed preference write restores window mode and runtime values");
     set_save_filename_prefix((preferences.string() + "/").c_str());
+    require(!game_settings.smooth_pixels, "crisp pixels are the default");
+    pal.set(1, 0, 0, 255);
+    pal.set(2, 0, 255, 0);
+    pal.load();
+    screen->clear(1);
+    screen->scan_line(19)[20] = 2;
+    screen->scan_line(20)[19] = 2;
+    put_image(screen, 0, 0);
+    require(platform_set_smooth_pixels(true), "enable and save smooth pixels");
+    require(xres == 320 && yres == 200, "smoothing keeps the logical framebuffer size");
+    require(settings_load((preferences / "settings.cfg").string(), reloaded) && reloaded.smooth_pixels,
+            "smooth pixels survives configuration reload");
+    pixel(40, 40, 0, 255, 0); // matching neighbors extend into only the near corner
+    pixel(41, 40, 0, 64, 191); // adjacent edges are blended with the center
+    pixel(40, 41, 0, 64, 191);
+    pixel(41, 41, 0, 0, 255);
+    pixel(639, 399, 0, 0, 255);
+    pal.set(2, 255, 0, 0);
+    pal.load();
+    pixel(40, 40, 255, 0, 0); // the filtered frame follows palette changes too
+    pixel(41, 40, 64, 0, 191);
     image *original_screen = screen;
     for (int preset : {1, 2, 3, 0}) {
         require(platform_set_view_resolution(preset), "change live resolution");
@@ -227,6 +248,7 @@ int main(int argc, char **argv)
                 screen->Size().y == view_height(preset) && xres == view_width(preset) && yres == view_height(preset),
                 "live resize preserves framebuffer identity and updates dimensions");
         screen->clear(1); put_image(screen, 0, 0); update_window_done();
+        pixel(xres * 2 - 1, yres * 2 - 1, 0, 0, 255);
         require(settings_load((preferences / "settings.cfg").string(), reloaded) && reloaded.view_resolution == preset,
                 "live resolution selection persists");
         float wx, wy;
@@ -237,6 +259,17 @@ int main(int argc, char **argv)
     set_save_filename_prefix((preferences.string() + "/missing/").c_str());
     require(!platform_set_view_resolution(3) && xres == 320 && yres == 200 && screen == original_screen,
             "failed resolution save preserves current framebuffer");
+    require(!platform_set_smooth_pixels(false) && game_settings.smooth_pixels,
+            "failed filter save preserves the runtime mode");
+    pixel(639, 399, 0, 0, 255);
+    set_save_filename_prefix((preferences.string() + "/").c_str());
+    require(platform_set_smooth_pixels(false), "return to crisp pixels without restarting");
+    require(settings_load((preferences / "settings.cfg").string(), reloaded) && !reloaded.smooth_pixels,
+            "disabling smooth pixels persists");
+    require(platform_screenshot("platform-test.bmp"), "capture crisp pixels again");
+    SDL_Surface *crisp = SDL_LoadBMP("platform-test.bmp");
+    require(crisp && crisp->w == 320 && crisp->h == 200, "crisp screenshot returns to logical size");
+    SDL_DestroySurface(crisp);
     std::filesystem::remove_all(preferences);
     close_graphics();
     SDL_Quit();

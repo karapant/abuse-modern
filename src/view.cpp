@@ -127,33 +127,11 @@ int32_t view::xoff()
   } else return pan_x;
 }
 
-int32_t view::interpolated_xoff()
-{
-  if (focus)
-  {
-    int x=(last_last_x+last_x)/2-(cx2-cx1+1)/2+shift_right+pan_x;
-    if (x<0) return 0;
-    else return x;
-  } else return pan_x;
-}
-
-
 int32_t view::yoff()
 {
   if (focus)
   {
     int y=last_y-(cy2-cy1+1)/2-shift_down+pan_y;
-    if (y<0) return 0;
-    else return y;
-  } else return pan_y;
-}
-
-
-int32_t view::interpolated_yoff()
-{
-  if (focus)
-  {
-    int y=(last_y+last_last_y)/2-(cy2-cy1+1)/2-shift_down+pan_y;
     if (y<0) return 0;
     else return y;
   } else return pan_y;

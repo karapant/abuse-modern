@@ -25,6 +25,8 @@
 #include "lisp.h"
 #include "jrand.h"
 #include "light.h"
+#include "motion.h"
+#include "sdlport/preferences.h"
 #include <algorithm>
 #include <cstring>
 #include "dprint.h"
@@ -104,7 +106,8 @@ int32_t game_object::get_var_by_name(char *name, int &error)
 
   for (i=0; i<figures[otype]->tiv; i++)
   {
-    if (!strcmp(lstring_value(((LSymbol *)figures[otype]->vars[i])->GetName()),name))
+    if (figures[otype]->vars[i] &&
+        !strcmp(lstring_value(((LSymbol *)figures[otype]->vars[i])->GetName()),name))
     {
       return lvars[figures[otype]->var_index[i]];
 /*      LObjectVar *cobj=(LObjectVar *)symbol_value(figures[otype]->vars[i]);
@@ -134,7 +137,8 @@ int game_object::set_var_by_name(char *name, int32_t value)
     }
   }
   for (i=0; i<figures[otype]->tiv; i++)
-    if (!strcmp(lstring_value(((LSymbol *)figures[otype]->vars[i])->GetName()),name))
+    if (figures[otype]->vars[i] &&
+        !strcmp(lstring_value(((LSymbol *)figures[otype]->vars[i])->GetName()),name))
     {
       lvars[figures[otype]->var_index[i]]=value;
       return 1;
@@ -620,6 +624,28 @@ int32_t game_object::x_center()
 }
 
 
+vec2i game_object::render_position(int frame, uint32_t tick) const
+{
+    const vec2i current(x, y);
+    if (frame == frames_per_tick || movement_tick != tick) return current;
+    return interpolate_motion(vec2i(last_x, last_y), current, frame);
+}
+
+static bool projectile_origin(const game_object &object, vec2i &origin)
+{
+    const auto *type = figures[object.otype];
+    const int32_t *trail_x = nullptr, *trail_y = nullptr;
+    for (int i = 0; i < type->tiv; ++i) {
+        if (!type->vars[i]) continue;
+        const char *var = lstring_value(static_cast<LSymbol *>(type->vars[i])->GetName());
+        if (!strcmp(var, "sgb_lastx")) trail_x = &object.lvars[type->var_index[i]];
+        if (!strcmp(var, "sgb_lasty")) trail_y = &object.lvars[type->var_index[i]];
+    }
+    if (!trail_x || !trail_y) return false;
+    origin = vec2i(*trail_x, *trail_y);
+    return true;
+}
+
 void game_object::collect_projectile_light(int32_t draw_x, int32_t draw_y)
 {
     const char *name = object_names[otype];
@@ -638,21 +664,98 @@ void game_object::collect_projectile_light(int32_t draw_x, int32_t draw_y)
     else return;
 
     // Use the same endpoints as the stock beam draw functions.
-    const auto *type = figures[otype];
-    const int *trail_x = nullptr, *trail_y = nullptr;
-    for (int i = 0; i < type->tiv; ++i) {
-        if (!type->vars[i]) continue;
-        const char *var = lstring_value(static_cast<LSymbol *>(type->vars[i])->GetName());
-        if (!strcmp(var, "sgb_lastx")) trail_x = &lvars[type->var_index[i]];
-        if (!strcmp(var, "sgb_lasty")) trail_y = &lvars[type->var_index[i]];
+    vec2i origin;
+    if (projectile_origin(*this, origin))
+        add_projectile_light(glow, draw_x, draw_y, origin.x + draw_x - x, origin.y + draw_y - y);
+}
+
+struct ProjectileColors
+{
+    vec3i tail, rim, core;
+};
+
+static void projectile_line(vec2i from, vec2i to, const vec3i &rgb)
+{
+    screen->line(from.x, from.y, to.x, to.y, pal->find_closest(rgb.x, rgb.y, rgb.z));
+}
+
+static bool projectile_visible(vec2i from, vec2i to, int margin)
+{
+    int left, top, right, bottom;
+    screen->GetClip(left, top, right, bottom);
+    return std::max(from.x, to.x) >= left - margin && std::min(from.x, to.x) < right + margin &&
+           std::max(from.y, to.y) >= top - margin && std::min(from.y, to.y) < bottom + margin;
+}
+
+static bool draw_enhanced_beam(const game_object &object, const char *name, LSymbol *draw)
+{
+    if (!draw) return false;
+    const char *draw_name = lstring_value(draw->GetName());
+    ProjectileColors colors;
+    if (!strcmp(name, "SHOTGUN_BULLET") && !strcmp(draw_name, "sgun_draw"))
+        colors = {{178, 38, 22}, {238, 79, 45}, {255, 214, 168}};
+    else if (!strcmp(name, "PLASMAGUN_BULLET") && !strcmp(draw_name, "pgun_draw"))
+        colors = {{126, 44, 156}, {204, 100, 235}, {243, 204, 255}};
+    else if (!strcmp(name, "LSABER_BULLET") && !strcmp(draw_name, "lsaber_draw"))
+        colors = {{51, 120, 180}, {94, 183, 250}, {218, 249, 255}};
+    else
+        return false;
+
+    vec2i origin;
+    if (!projectile_origin(object, origin)) return false;
+    const vec2i scroll(current_vxadd, current_vyadd);
+    const vec2i from = origin + object.render_shift - scroll;
+    const vec2i to = vec2i(object.x, object.y) - scroll;
+    const vec2i span = to - from;
+    if (std::abs(span.x) > 512 || std::abs(span.y) > 512) return false;
+    if (!projectile_visible(from, to, 1)) return true;
+    const vec2i shoulder = from + span / 3;
+    const vec2i edge = std::abs(span.x) >= std::abs(span.y) ? vec2i(0, 1) : vec2i(1, 0);
+    projectile_line(from, shoulder, colors.tail);
+    projectile_line(shoulder + edge, to + edge, colors.rim);
+    projectile_line(shoulder - edge, to - edge, colors.rim);
+    projectile_line(shoulder, to, colors.core);
+    return true;
+}
+
+static void draw_projectile_trail(game_object &object, const char *name)
+{
+    ProjectileColors colors;
+    int length;
+    if (!strcmp(name, "ROCKET") || !strcmp(name, "STRAIT_ROCKET")) {
+        colors = {{142, 55, 20}, {239, 109, 31}, {255, 211, 119}};
+        length = 18;
+    } else if (!strcmp(name, "GRENADE") || !strcmp(name, "FIREBOMB")) {
+        colors = {{126, 43, 19}, {215, 86, 26}, {255, 170, 71}};
+        length = 10;
+    } else if (!strcmp(name, "DFRIS_BULLET")) {
+        colors = {{39, 103, 99}, {62, 168, 156}, {154, 229, 214}};
+        length = 12;
+    } else {
+        return;
     }
-    if (trail_x && trail_y)
-        add_projectile_light(glow, draw_x, draw_y, *trail_x, *trail_y);
+    const vec2i velocity(std::clamp(object.xvel(), -64, 64), std::clamp(object.yvel(), -64, 64));
+    const int speed = std::max(std::abs(velocity.x), std::abs(velocity.y));
+    if (!speed) return;
+    const vec2i body(object.x - current_vxadd, object.y - current_vyadd - object.picture()->Size().y / 2);
+    const vec2i tip = body - velocity * length / speed;
+    if (!projectile_visible(body, tip, 0)) return;
+    const vec2i middle = (tip + body) / 2;
+    projectile_line(tip, middle, colors.tail);
+    projectile_line(middle, body, colors.rim);
+    projectile_line((middle + body) / 2, body, colors.core);
 }
 
 void game_object::draw()
 {
-  if (figures[otype]->get_fun(OFUN_DRAW))
+  auto *draw_fun = static_cast<LSymbol *>(figures[otype]->get_fun(OFUN_DRAW));
+  if (game_settings.enhanced_projectiles && pal)
+  {
+    const char *name = object_names[otype];
+    if (draw_enhanced_beam(*this, name, draw_fun)) return;
+    draw_projectile_trail(*this, name);
+  }
+  if (draw_fun)
   {
     current_object=this;
 
@@ -661,7 +764,7 @@ void game_object::draw()
     if (profiling())
       prof1=new time_marker;
 
-    ((LSymbol *)figures[otype]->get_fun(OFUN_DRAW))->EvalFunction(NULL);
+    draw_fun->EvalFunction(NULL);
     if (profiling())
     {
       time_marker now;

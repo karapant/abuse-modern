@@ -58,6 +58,8 @@ class game_object : public simple_object
 public :
   game_object *next,*next_active;
   int32_t *lvars;
+  uint32_t movement_tick = 0;
+  vec2i render_shift = vec2i(0, 0);
 
   int size();
   int decide();        // returns 0 if you want to be deleted
@@ -72,6 +74,7 @@ public :
   int pushable() { return figures[otype]->get_cflag(CFLAG_PUSHABLE); }
 
   void collect_projectile_light(int32_t draw_x, int32_t draw_y);
+  vec2i render_position(int frame, uint32_t tick) const;
   void draw();
   void map_draw();
   void draw_trans(int count, int max);

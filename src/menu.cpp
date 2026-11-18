@@ -828,16 +828,24 @@ static void text_enhancements()
             {1, "Modern HUD", game_settings.modern_hud ? "[x]" : "[ ]", true, true},
             {2, "Enhanced Lighting", game_settings.enhanced_lighting ? "[x]" : "[ ]", true, true},
             {3, "Checkpoint Feedback", game_settings.checkpoint_feedback ? "[x]" : "[ ]", true, true},
+            {4, "Smooth pixels", game_settings.smooth_pixels ? "[x]" : "[ ]", true, true},
+            {5, "Enhanced projectiles", game_settings.enhanced_projectiles ? "[x]" : "[ ]", true, true},
             {ID_CANCEL, "Back", ""}
         };
         const auto action = run_text_menu(menu, "ENHANCEMENTS", "ENTER TO TOGGLE   ESC BACK");
         if (action.id == -1 || action.id == ID_CANCEL) return;
+        if (action.id == 4) {
+            if (!platform_set_smooth_pixels(!game_settings.smooth_pixels))
+                text_notice("DISPLAY CHANGE FAILED", SDL_GetError());
+            continue;
+        }
         Setting setting;
         bool enabled;
         switch (action.id) {
         case 1: setting = Setting::ModernHud; enabled = game_settings.modern_hud; break;
         case 2: setting = Setting::EnhancedLighting; enabled = game_settings.enhanced_lighting; break;
         case 3: setting = Setting::CheckpointFeedback; enabled = game_settings.checkpoint_feedback; break;
+        case 5: setting = Setting::EnhancedProjectiles; enabled = game_settings.enhanced_projectiles; break;
         default: continue;
         }
         if (!save_setting(setting, !enabled)) {

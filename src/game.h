@@ -25,6 +25,7 @@
 #include "director.h"
 #include "view.h"
 #include "id.h"
+#include "motion.h"
 
 #define MAPFW                100
 #define MAPFH                100
@@ -73,6 +74,8 @@ private:
   char mapname[100],command[200],help_text[200];
   int refresh,mousex,mousey,help_text_frames;
   int has_joystick,no_delay;
+  bool between_ticks = false;
+  float last_render_ms = 0;
 
 
   Jwindow *top_menu,*joy_win,*last_input;
@@ -126,7 +129,7 @@ public :
 
   void put_fg(int x, int y, int type);
   void put_bg(int x, int y, int type);
-  void draw_map(view *v, int interpolate=0);
+  void draw_map(view *v, int frame = frames_per_tick);
   void dev_scroll();
   void put_block_fg(int x, int y, TransImage *im);
   void put_block_bg(int x, int y, image *im);
@@ -142,7 +145,8 @@ public :
   void need_refresh() { refresh=1; }       // for development mode only
   palette *current_palette() { return pal; }
 
-  void update_screen();
+  void update_screen(int frame = frames_per_tick);
+  bool drawing_between_ticks() const { return between_ticks; }
   void get_input();
   void do_intro();
   void joy_calb(event &ev);

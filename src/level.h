@@ -127,7 +127,7 @@ public :
   void put_fg(int x, int y, uint16_t tile) { *(map_fg+x+y*fg_width)=tile; }
   void put_bg(int x, int y, uint16_t tile) { *(map_bg+x+y*bg_width)=tile; }
   void draw_objects(view *v);
-  void interpolate_draw_objects(view *v);
+  void interpolate_draw_objects(view *v, int frame);
   void draw_areas(view *v);
   int tick();                                // returns false if character is dead
   void check_collisions();

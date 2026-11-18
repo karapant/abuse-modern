@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abuse Modern Tile Browser</title>
+<style>
+:root { color-scheme: dark; background: #15191e; color: #eef1f3; font: 15px/1.5 system-ui, sans-serif }
+* { box-sizing: border-box }
+body { margin: 0 }
+main { max-width: 1260px; margin: auto; padding: 38px 24px }
+h1 { margin: 0; font-size: clamp(26px, 5vw, 40px) }
+h2 { margin: 28px 0 10px; font-size: 18px }
+p { margin: .4em 0; color: #b7c2cb }
+small { color: #b7c2cb; font-size: 12px }
+button, input, select { font: inherit; color: inherit; background: #222932; border: 1px solid #414b57; border-radius: 6px; padding: 7px 10px }
+button { text-align: left; cursor: pointer }
+button:hover, button[aria-pressed="true"] { border-color: #edb670 }
+:focus-visible { outline: 2px solid #edb670; outline-offset: 2px }
+.families, #tiles { display: grid; gap: 10px }
+.families { grid-template-columns: repeat(auto-fit,minmax(230px,1fr)) }
+.families button { padding: 13px; display: grid; gap: 5px }
+.families strong, .tile strong { color: #efba76 }
+.filters { display: flex; flex-wrap: wrap; gap: 10px; padding: 15px 0 4px }
+.filters label { display: grid; gap: 4px; color: #b7c2cb; font-size: 13px }
+.filters select { max-width: 220px }
+#tiles { grid-template-columns: repeat(auto-fill,minmax(178px,1fr)); margin-top: 12px }
+.tile { min-width: 0; padding: 10px; border: 1px solid #343e47; border-radius: 7px; background: #1c2229 }
+.preview { display: grid; place-items: center; height: 80px; margin-bottom: 8px; border-radius: 3px; background:
+ conic-gradient(#303842 25%,#252c34 0 50%,#303842 0 75%,#252c34 0) 0 0 / 14px 14px }
+.preview img { image-rendering: pixelated; max-width: 100%; max-height: 76px; object-fit: contain }
+.tile small { display: block; overflow-wrap: anywhere }
+.tile details { font-size: 12px; margin-top: 5px }
+.tile summary { cursor: pointer }
+.usage { margin: 4px 0 0; padding-left: 18px; color: #b7c2cb }
+#more { margin-top: 16px }
+.tile button { margin-top: 7px; font-size: 13px }
+dialog { width: min(94vw, 930px); max-height: 90vh; border: 1px solid #414b57;
+ border-radius: 10px; background: #1c2229; color: inherit; padding: 20px }
+dialog::backdrop { background: #080b10cc }
+.context-header { display: flex; align-items: start; justify-content: space-between; gap: 12px }
+.context-header h2 { margin: 0 }
+.context-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 }
+.context-scroll { overflow: auto; background: #111418; padding: 8px; border-radius: 5px }
+#context-map { width: min(var(--map-width), 100%); position: relative; overflow: hidden;
+ background: #101419; margin: 0 auto }
+#context-map img, .highlight { position: absolute }
+#context-map img { image-rendering: pixelated }
+.highlight { pointer-events: none; border: 2px solid #ffc477; box-shadow: inset 0 0 0 1px #16191f }
+#context-neighbors { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px }
+#context-neighbors button { padding: 3px 7px; font-size: 12px }
+
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Abuse Modern Tile Browser</h1>
+<p id="overview"></p>
+</header>
+<h2>Suggested art batches</h2>
+<div class="families" id="families"></div>
+<h2>Tile catalog</h2>
+<div class="filters">
+<label>Search<input id="search" type="search" placeholder="Tile ID, archive, or role"></label>
+<label>Layer<select id="layer"><option value="">All layers</option><option>Foreground</option><option>Background</option></select></label>
+<label>Level<select id="level"><option value="">All numbered levels</option></select></label>
+<label>Archive<select id="archive"><option value="">All archives</option></select></label>
+<label>Sort<select id="sort"><option value="levels">Most levels</option><option value="placements">Most placements</option><option value="id">Tile ID</option></select></label>
+<label>Coverage<select id="coverage"><option value="used">Used tiles</option><option value="active">All active tiles</option><option value="all">Include superseded entries</option></select></label>
+</div>
+<p id="results" aria-live="polite"></p>
+<div id="tiles"></div>
+<button id="more" type="button" hidden>Show 100 more tiles</button>
+<details>
+<summary>About the measurements</summary>
+<p>Counts are map cells from numbered campaign levels. Foreground and background IDs are separate. A map can repeat the same tile many times, including fill outside playable areas. Thumbnails show palette colors before in-game lighting.</p>
+<p>Archive resolution follows literal load calls reachable from abuse.lsp. Dynamic loads, the editor, alternate campaigns, and multiplayer maps are outside this report.</p>
+<p id="diagnostics"></p>
+</details>
+<dialog id="context" aria-labelledby="context-title">
+<div class="context-header">
+  <div><h2 id="context-title"></h2><p id="context-location"></p></div>
+  <button type="button" id="context-close" autofocus>Close</button>
+</div>
+<div class="context-controls">
+  <button type="button" id="context-prev">Previous</button>
+  <label>Placement <select id="context-select"></select></label>
+  <button type="button" id="context-next">Next</button>
+</div>
+<div class="context-scroll">
+  <div id="context-map" role="img"></div>
+</div>
+<p id="context-note"></p>
+<div id="context-neighbors" aria-label="Inspect a neighboring tile"></div>
+</dialog>
+</main>
+<script type="application/json" id="catalog">__TILE_CATALOG__</script>
+<script>
+"use strict";
+const catalog = JSON.parse(document.getElementById("catalog").textContent);
+const el = id => document.getElementById(id);
+const fmt = n => n.toLocaleString();
+const fields = ["search", "layer", "level", "archive", "sort", "coverage"];
+let family = "";
+let limit = 100;
+el("overview").textContent = `${fmt(catalog.tiles.length)} tile entries across ${catalog.archiveCount} archives and ${catalog.levels.length} numbered campaign levels.`;
+for (const value of catalog.levels) el("level").add(new Option(value));
+for (const value of [...new Set(catalog.tiles.map(tile => tile.archive))].sort())
+    el("archive").add(new Option(value));
+for (const item of catalog.families) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.family = item.name;
+    button.setAttribute("aria-pressed", "false");
+    const name = document.createElement("strong");
+    name.textContent = item.name;
+    const metrics = document.createElement("small");
+    metrics.textContent = `${item.tiles} used tiles · ${item.levels} levels · ${fmt(item.placements)} placements`;
+    const note = document.createElement("span");
+    note.textContent = item.note;
+    button.append(name, metrics, note);
+    button.addEventListener("click", () => {
+        family = family === item.name ? "" : item.name;
+        for (const field of fields) {
+            if (field !== "sort") el(field).selectedIndex = 0;
+        }
+        el("search").value = "";
+        reset();
+    });
+    el("families").append(button);
+}
+const diagnostics = [];
+if (catalog.missing.length) diagnostics.push(`Missing referenced archives: ${catalog.missing.join(", ")}.`);
+if (catalog.unresolved.length) diagnostics.push(`${catalog.unresolved.length} map tile IDs did not resolve in the scanned archives.`);
+el("diagnostics").textContent = diagnostics.join(" ");
+const tileIndex = new Map(catalog.tiles.filter(tile => tile.active)
+    .map(tile => [tile.layer + ":" + tile.id, tile]));
+const contextDialog = el("context");
+const contextSelect = el("context-select");
+let contextTile = null;
+let contextSamples = [];
+
+function showContext(tile, preferredLevel, placement) {
+    contextTile = tile;
+    contextSamples = tile.contexts;
+    let selected = contextSamples.findIndex(sample => sample.level === preferredLevel);
+    if (placement) {
+        const isPlacement = sample => sample.level === placement.level &&
+            sample.x === placement.x && sample.y === placement.y;
+        contextSamples = [placement, ...contextSamples.filter(sample => !isPlacement(sample))];
+        selected = 0;
+    }
+    contextSelect.replaceChildren();
+    for (const [i, sample] of contextSamples.entries())
+        contextSelect.add(new Option(sample.level + " · (" + sample.x + ", " + sample.y + ")", i));
+    contextSelect.selectedIndex = Math.max(0, selected);
+    drawContext();
+    if (!contextDialog.open) contextDialog.showModal();
+}
+
+function drawContext() {
+    if (!contextTile) return;
+    const i = contextSelect.selectedIndex;
+    const sample = contextSamples[i];
+    const lookup = id => tileIndex.get(contextTile.layer + ":" + id);
+    const base = lookup(0) || contextTile;
+    const map = el("context-map");
+    const meshWidth = base.width * sample.width;
+    const meshHeight = base.height * sample.height;
+    map.style.setProperty("--map-width", (meshWidth * 3) + "px");
+    map.style.aspectRatio = meshWidth + " / " + meshHeight;
+    const cell = (node, col, row, width, height) => {
+        node.style.left = (col * base.width / meshWidth * 100) + "%";
+        node.style.top = (row * base.height / meshHeight * 100) + "%";
+        node.style.width = (width / meshWidth * 100) + "%";
+        node.style.height = (height / meshHeight * 100) + "%";
+    };
+    map.replaceChildren();
+    const neighbors = new Map();
+    for (const [slot, id] of sample.tiles.entries()) {
+        const tile = lookup(id);
+        if (!tile) continue;
+        const col = slot % sample.width;
+        const row = Math.floor(slot / sample.width);
+        const img = document.createElement("img");
+        img.src = tile.thumb;
+        img.alt = "";
+        cell(img, col, row, tile.width, tile.height);
+        map.append(img);
+        if (id === 0 || id === contextTile.id) continue;
+        const x = sample.left + col;
+        const y = sample.top + row;
+        const distance = Math.abs(sample.x - x) + Math.abs(sample.y - y);
+        if (!neighbors.has(id) || distance < neighbors.get(id).distance)
+            neighbors.set(id, { x, y, distance });
+    }
+    const highlight = document.createElement("div");
+    highlight.className = "highlight";
+    cell(highlight, sample.x - sample.left, sample.y - sample.top, base.width, base.height);
+    map.append(highlight);
+    el("context-title").textContent = "Tile " + contextTile.id + " · " + (contextTile.role || contextTile.layer);
+    el("context-location").textContent = sample.level + " · tile (" + sample.x + ", " + sample.y + ")";
+    map.setAttribute("aria-label", el("context-title").textContent + " in " + el("context-location").textContent);
+    el("context-note").textContent = contextTile.layer + " layout before lighting. Select a neighboring tile below to follow the join.";
+    el("context-prev").disabled = i <= 0;
+    el("context-next").disabled = i + 1 >= contextSamples.length;
+    const links = el("context-neighbors");
+    links.replaceChildren();
+    for (const [id, { x, y }] of neighbors) {
+        const tile = lookup(id);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = String(id) + (tile.role ? " · " + tile.role : "");
+        button.addEventListener("click", () => showContext(tile, sample.level, { ...sample, x, y }));
+        links.append(button);
+    }
+}
+el("context-close").addEventListener("click", () => contextDialog.close());
+contextSelect.addEventListener("change", drawContext);
+el("context-prev").addEventListener("click", () => { --contextSelect.selectedIndex; drawContext(); });
+el("context-next").addEventListener("click", () => { ++contextSelect.selectedIndex; drawContext(); });
+
+function card(tile) {
+    const article = document.createElement("article");
+    article.className = "tile";
+    const preview = document.createElement("div");
+    preview.className = "preview";
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.src = tile.thumb;
+    const magnification = Math.min(3, Math.floor(154 / tile.width), Math.floor(76 / tile.height));
+    img.width = tile.width * Math.max(1, magnification);
+    img.height = tile.height * Math.max(1, magnification);
+    img.alt = `${tile.layer} tile ${tile.id}`;
+    preview.append(img);
+    const title = document.createElement("strong");
+    title.textContent = `${tile.id} · ${tile.role || tile.layer}`;
+    const source = document.createElement("small");
+    source.textContent = `${tile.archive} · entry ${tile.entry} · ${tile.width}×${tile.height}`;
+    const slots = document.createElement("small");
+    slots.textContent = tile.active
+        ? `${Object.keys(tile.usage).length} levels · ${fmt(tile.placements)} placements`
+        : "Superseded by a later archive";
+    article.append(preview, title, source, slots);
+    if (tile.contexts.length) {
+        const context = document.createElement("button");
+        context.type = "button";
+        context.textContent = "Show in level";
+        context.addEventListener("click", () => showContext(tile, el("level").value));
+        const row = document.createElement("div");
+        row.append(context);
+        article.append(row);
+    }
+    const locations = Object.entries(tile.usage);
+    if (locations.length) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = "Level usage";
+        const list = document.createElement("ul");
+        list.className = "usage";
+        for (const [level, count] of locations) {
+            const line = document.createElement("li");
+            line.textContent = `${level} · ${fmt(count)}`;
+            list.append(line);
+        }
+        details.append(summary, list);
+        article.append(details);
+    }
+    return article;
+}
+function render() {
+    const [query, layer, level, archive, sort, coverage] = fields.map(id => el(id).value.trim());
+    const term = query.toLowerCase();
+    const tiles = catalog.tiles.filter(tile =>
+        (!family || tile.family === family) && (!layer || tile.layer === layer) &&
+        (!level || tile.usage[level]) && (!archive || tile.archive === archive) &&
+        (coverage === "all" || tile.active) && (coverage !== "used" || tile.placements) &&
+        (!term || (/^\d+$/.test(term) ? tile.id === Number(term) :
+            `${tile.name} ${tile.archive} ${tile.role} ${tile.family}`.toLowerCase().includes(term))));
+    const counts = tile => level ? (tile.usage[level] || 0) : tile.placements;
+    tiles.sort((a, b) => (sort === "id" ? 0 : sort === "placements" ? counts(b) - counts(a) :
+        Object.keys(b.usage).length - Object.keys(a.usage).length || counts(b) - counts(a))
+        || a.id - b.id || a.archive.localeCompare(b.archive));
+    for (const button of el("families").children)
+        button.setAttribute("aria-pressed", String(family === button.dataset.family));
+    const heading = family ? `${family} · ` : "";
+    el("results").textContent = `${heading}${fmt(tiles.length)} matching tiles${tiles.length > limit ? ` · showing ${limit}` : ""}`;
+    el("tiles").replaceChildren(...tiles.slice(0, limit).map(card));
+    el("more").hidden = tiles.length <= limit;
+}
+function reset() { limit = 100; render(); }
+for (const id of fields) el(id).addEventListener(id === "search" ? "input" : "change", reset);
+el("more").addEventListener("click", () => { limit += 100; render(); });
+render();
+</script>
+</body>
+</html>

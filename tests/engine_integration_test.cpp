@@ -33,6 +33,7 @@
 #include "chars.h"
 #include "transimage.h"
 #include "loader2.h"
+#include "jrand.h"
 #include "nfserver.h"
 #include <cstring>
 
@@ -393,7 +394,8 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         else choose(menu, "Enhancements");
     } else if (phase == 64 && page == "ENHANCEMENTS") {
         require(menu->items.at(0).value == "[x]" && menu->items.at(1).value == "[x]" &&
-                menu->items.at(2).value == "[x]", "all enhancement checkboxes are checked by default");
+                menu->items.at(2).value == "[x]" && menu->items.at(3).value == "[ ]" && menu->items.at(4).value == "[x]",
+                "original enhancements are enabled and smoothing is off by default");
         if (selected(menu, "Modern HUD")) { enter(); phase = 65; }
         else choose(menu, "Modern HUD");
     } else if (phase == 65 && page == "ENHANCEMENTS") {
@@ -408,11 +410,21 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         else choose(menu, "Checkpoint Feedback");
     } else if (phase == 68 && page == "ENHANCEMENTS") {
         if (game_settings.checkpoint_feedback) return;
+        if (selected(menu, "Smooth pixels")) { enter(); phase = 69; }
+        else choose(menu, "Smooth pixels");
+    } else if (phase == 69 && page == "ENHANCEMENTS") {
+        if (!game_settings.smooth_pixels) return;
+        if (selected(menu, "Enhanced projectiles")) { enter(); phase = 70; }
+        else choose(menu, "Enhanced projectiles");
+    } else if (phase == 70 && page == "ENHANCEMENTS") {
+        if (game_settings.enhanced_projectiles) return;
         GameSettings reloaded;
-        require(menu->items.at(1).value == "[ ]" && menu->items.at(2).value == "[ ]" &&
+        require(menu->items.at(1).value == "[ ]" && menu->items.at(2).value == "[ ]" && menu->items.at(3).value == "[x]" &&
+                menu->items.at(4).value == "[ ]" &&
                 settings_load((root / "settings.cfg").string(), reloaded) &&
-                !reloaded.modern_hud && !reloaded.enhanced_lighting && !reloaded.checkpoint_feedback,
-                "disabled enhancements are saved from the pause menu");
+                !reloaded.modern_hud && !reloaded.enhanced_lighting && !reloaded.checkpoint_feedback &&
+                reloaded.smooth_pixels && !reloaded.enhanced_projectiles,
+                "changed enhancements are saved from the pause menu");
         escape(); phase = 67;
     } else if (phase == 67 && page == "SETTINGS") {
         escape(); phase = 63;
@@ -440,6 +452,99 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
     }
 }
 extern "C" void __real__ZN4view9get_inputEv(view *);
+
+static void check_projectile_styles(view *v)
+{
+    image *frame = screen;
+    auto *saved_view = current_view;
+    auto *saved_object = current_object;
+    const int32_t saved_random = rand_on;
+    const int32_t saved_x = current_vxadd, saved_y = current_vyadd;
+    const int enhanced = game_settings.enhanced_projectiles;
+    current_view = v;
+    current_vxadd = v->xoff() - v->cx1;
+    current_vyadd = v->yoff() - v->cy1;
+    image original(frame->Size()), modern(frame->Size());
+    for (const char *name : {"SHOTGUN_BULLET", "PLASMAGUN_BULLET", "LSABER_BULLET", "ROCKET",
+                             "GRENADE", "FIREBOMB", "DFRIS_BULLET"}) {
+        int type = 0;
+        while (type < total_objects && strcmp(object_names[type], name)) ++type;
+        require(type < total_objects, name);
+        auto *object = create(type, current_vxadd + 200, current_vyadd + 95);
+        object->set_xvel(12);
+        const bool laser = !strcmp(name, "SHOTGUN_BULLET");
+        if (laser || !strcmp(name, "PLASMAGUN_BULLET") || !strcmp(name, "LSABER_BULLET")) {
+            char origin_x[] = "sgb_lastx", origin_y[] = "sgb_lasty";
+            require(object->set_var_by_name(origin_x, object->x - 30) &&
+                    object->set_var_by_name(origin_y, object->y + 8), "initialize beam origin");
+        }
+        if (laser) {
+            char bright[] = "sgb_bright_color", medium[] = "sgb_medium_color";
+            object->set_var_by_name(bright, pal->find_closest(255, 45, 12));
+            object->set_var_by_name(medium, pal->find_closest(175, 18, 6));
+        }
+        const auto draw = [&](image &target, bool enabled) {
+            screen = &target;
+            target.clear();
+            rand_on = saved_random;
+            game_settings.enhanced_projectiles = enabled;
+            object->draw();
+        };
+        draw(original, false);
+        draw(modern, true);
+        bool different = false;
+        for (int y = 70; y < 110 && !different; ++y)
+            different = memcmp(original.scan_line(y) + 160, modern.scan_line(y) + 160, 60) != 0;
+        require(different, name);
+        draw(modern, false);
+        for (int y = 70; y < 110; ++y)
+            require(!memcmp(original.scan_line(y) + 160, modern.scan_line(y) + 160, 60),
+                    "disabling projectile styling restores the original draw");
+        delete object;
+    }
+    game_settings.enhanced_projectiles = enhanced;
+    rand_on = saved_random;
+    current_vxadd = saved_x; current_vyadd = saved_y;
+    current_object = saved_object;
+    current_view = saved_view;
+    screen = frame;
+}
+
+static void check_motion_frames(view *camera, game_object *shot)
+{
+    require(interpolate_motion({10, 20}, {22, 12}, 1) == vec2i(13, 18) &&
+            interpolate_motion({10, 20}, {22, 12}, 3) == vec2i(19, 14),
+            "subframes space motion evenly in both axes");
+    require(interpolate_motion({10, 20}, {310, 12}, 1) == vec2i(310, 12),
+            "an object teleports directly to its destination");
+    const auto tick = current_level->tick_counter();
+    const auto sync = make_sync();
+    const vec2i player_position(camera->focus->x, camera->focus->y);
+    const vec2i camera_position(camera->last_x, camera->last_y);
+    const vec2i shot_position(shot->x, shot->y);
+    const vec2i shot_history(shot->last_x, shot->last_y);
+    const auto shot_tick = shot->movement_tick;
+    shot->movement_tick = tick;
+    shot->last_x = shot->x - 20;
+    shot->last_y = shot->y;
+    for (int frame = 1; frame < frames_per_tick; ++frame) {
+        require(shot->render_position(frame, tick) == shot_position - vec2i(20 - 5 * frame, 0),
+                "a live projectile has distinct intermediate positions");
+        the_game->update_screen(frame);
+        require(vec2i(shot->x, shot->y) == shot_position && shot->last_x == shot->x - 20 &&
+                shot->render_shift == vec2i(0, 0) &&
+                vec2i(camera->focus->x, camera->focus->y) == player_position &&
+                vec2i(camera->last_x, camera->last_y) == camera_position,
+                "rendering restores object and camera positions without consuming motion history");
+        require(current_level->tick_counter() == tick && make_sync() == sync,
+                "rendering does not advance the simulation");
+    }
+    shot->movement_tick = shot_tick;
+    shot->last_x = shot_history.x;
+    shot->last_y = shot_history.y;
+    the_game->update_screen();
+}
+
 static void check_opening_level(view *v)
 {
     require(xres == 640 && yres == 360, "opening-level check runs at 640x360");
@@ -505,6 +610,13 @@ static void check_opening_level(view *v)
                     !object->total_objects() || object->get_object(0) != v->focus) continue;
                 saw_player_shot = true;
                 snapshot(tutorial ? "tutorial-shot.bmp" : "first-level-shot.bmp");
+                if (tutorial) {
+                    require(platform_set_smooth_pixels(true), "enable the filter on the tutorial firefight");
+                    snapshot("tutorial-shot-smooth.bmp");
+                    require(platform_set_smooth_pixels(false), "restore crisp pixels after capture");
+                    check_projectile_styles(v);
+                    check_motion_frames(v, object);
+                }
                 break;
             }
         }

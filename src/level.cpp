@@ -20,6 +20,7 @@
 #include <limits.h>
 #include <time.h>
 #include <unistd.h>
+#include <vector>
 
 #include "common.h"
 
@@ -581,30 +582,25 @@ game_object *level::all_boundary_setback(game_object *subject, int32_t x1, int32
 
 //bFILE *rcheck=NULL,*rcheck_lp=NULL;
 
-void level::interpolate_draw_objects(view *v)
+void level::interpolate_draw_objects(view *v, int frame)
 {
-  int32_t old_x,old_y;
-  current_view=v;
-
-  game_object *o=first_active;
-  for (; o; o=o->next_active)
-  {
-    old_x=o->x;
-    old_y=o->y;
-    o->x=(o->last_x+o->x)/2;
-    o->y=(o->last_y+o->y)/2;
-    o->last_x=old_x;
-    o->last_y=old_y;
-  }
-
-  for (o=first_active; o; o=o->next_active)
-    o->draw();
-
-  for (o=first_active; o; o=o->next_active)
-  {
-    o->x=o->last_x;
-    o->y=o->last_y;
-  }
+    struct Position { game_object *object; vec2i position; };
+    std::vector<Position> positions;
+    for (auto *object = first_active; object; object = object->next_active) {
+        const vec2i current(object->x, object->y);
+        const vec2i sampled = object->render_position(frame, tick_counter());
+        positions.push_back({object, current});
+        object->render_shift = sampled - current;
+        object->x = sampled.x;
+        object->y = sampled.y;
+    }
+    // Sample every object before drawing so attached sprites share their owner's position.
+    draw_objects(v);
+    for (const auto &saved : positions) {
+        saved.object->x = saved.position.x;
+        saved.object->y = saved.position.y;
+        saved.object->render_shift = vec2i(0, 0);
+    }
 }
 
 bFILE *rcheck=NULL,*rcheck_lp=NULL;
@@ -649,10 +645,14 @@ int level::tick()
     }
   }*/
 
+  for (o = first_active; o; o = o->next_active)
+  {
+    o->last_x = o->x;
+    o->last_y = o->y;
+    o->movement_tick = tick_counter() + 1;
+  }
   for (o=first_active; o; )
   {
-    o->last_x=o->x;
-    o->last_y=o->y;
     cur=o;
     view *c=o->controller();
     if (!(dev&SUSPEND_MODE) || c)

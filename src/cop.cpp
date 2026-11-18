@@ -723,7 +723,7 @@ void *player_draw(int just_fired_var, int num)
     if (o->lvars[just_fired_var])
     {
       o->draw_tint(S_bright_tint);
-      o->lvars[just_fired_var]=0;
+      if (!the_game->drawing_between_ticks()) o->lvars[just_fired_var]=0;
     } else
       o->drawer();
   }
@@ -732,7 +732,7 @@ void *player_draw(int just_fired_var, int num)
     if (o->lvars[just_fired_var])
     {
       o->draw_double_tint(lnumber_value(((LArray *)((LSymbol *)l_player_tints)->GetValue())->Get(num)), S_bright_tint);
-      o->lvars[just_fired_var]=0;
+      if (!the_game->drawing_between_ticks()) o->lvars[just_fired_var]=0;
     } else
       o->draw_tint(lnumber_value(((LArray *)((LSymbol *)l_player_tints)->GetValue())->Get(num)));
   }
@@ -786,7 +786,7 @@ void *bottom_draw()
 {
   game_object *o=current_object;
 
-  if (o->lvars[r_ramp] || o->lvars[g_ramp] || o->lvars[b_ramp])
+  if (!the_game->drawing_between_ticks() && (o->lvars[r_ramp] || o->lvars[g_ramp] || o->lvars[b_ramp]))
   {
     int r=o->lvars[r_ramp];
     if (r>7) r-=7;

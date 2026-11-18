@@ -18,7 +18,6 @@ edges = [278, 511, 743, 975, 1207, 1440, 1672, 1904, 2172]
 for i in range(8):
     cell = bar.crop((edges[i], 0, edges[i+1], 365)).resize((36, 48), Image.Resampling.LANCZOS)
     im.paste(cell, (32 + i * 36, 0))
-im.save(root / 'resources/hud-preview.png')
 values = [(r >> 3) << 11 | (g >> 2) << 5 | (b >> 3) for r, g, b in im.getdata()]
 lines = [', '.join(f'0x{x:04x}' for x in values[i:i+16]) for i in range(0, len(values), 16)]
 (root / 'src/ui/hud_skin.h').write_text('// SPDX-License-Identifier: GPL-2.0-or-later\n'

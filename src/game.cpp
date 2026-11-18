@@ -759,8 +759,9 @@ static void draw_checkpoint_markers(view *v, int world_x, int world_y, int scale
     }
 }
 
-void Game::draw_map(view *v, int interpolate)
+void Game::draw_map(view *v, int frame)
 {
+  const bool in_between = frame < frames_per_tick;
   backtile *bt;
   int x1, y1, x2, y2, x, y, xo, yo, nxoff, nyoff;
   int cx1, cy1, cx2, cy2;
@@ -795,6 +796,7 @@ void Game::draw_map(view *v, int interpolate)
 
   if(v->draw_solid != -1)      // fill the screen and exit..
   {
+    if (in_between) return;
     int c = v->draw_solid;
     screen->Lock();
     for(int y = v->cy1; y <= v->cy2; y++)
@@ -824,16 +826,15 @@ void Game::draw_map(view *v, int interpolate)
     screen->dirt_off();
 
 
-  int32_t xoff, yoff;
-  if(interpolate)
-  {
-    xoff = v->interpolated_xoff();
-    yoff = v->interpolated_yoff();
-  } else
-  {
-    xoff = v->xoff();
-    yoff = v->yoff();
+  between_ticks = in_between;
+  const vec2i camera(v->last_x, v->last_y);
+  if (in_between && v->focus) {
+    const vec2i sample = interpolate_motion(vec2i(v->last_last_x, v->last_last_y), camera, frame);
+    // Use one camera origin for tiles, sprites, scripted draws, and lighting.
+    v->last_x = sample.x;
+    v->last_y = sample.y;
   }
+  const int32_t xoff = v->xoff(), yoff = v->yoff();
 
 //  if(xoff > max_xoff) xoff = max_xoff;
 //  if(yoff > max_yoff) yoff = max_yoff;
@@ -848,9 +849,8 @@ void Game::draw_map(view *v, int interpolate)
   if (game_settings.enhanced_lighting && (dev & DRAW_LIGHTS) &&
       (dev & DRAW_PEOPLE_LAYER) && !(dev & MAP_MODE)) {
     for (auto *object = current_level->first_active_object(); object; object = object->next_active) {
-      const int draw_x = interpolate ? (object->last_x + object->x) / 2 : object->x;
-      const int draw_y = interpolate ? (object->last_y + object->y) / 2 : object->y;
-      object->collect_projectile_light(draw_x, draw_y);
+      const vec2i sample = object->render_position(frame, current_level->tick_counter());
+      object->collect_projectile_light(sample.x, sample.y);
     }
     if (has_projectile_lights()) {
       reflective_surfaces = std::make_unique<image>(screen->Size(), nullptr, 1);
@@ -1026,7 +1026,7 @@ void Game::draw_map(view *v, int interpolate)
             if (reflective_surfaces)
               get_fg(fort_num)->im->PutColor(reflective_surfaces.get(), vec2i(draw_x, draw_y), WallReflection);
 
-        if(!(dev & EDIT_MODE))
+        if(!(dev & EDIT_MODE) && !in_between)
             *cl|=0x8000;      // mark as has - been - seen
           }
         }
@@ -1042,8 +1042,8 @@ void Game::draw_map(view *v, int interpolate)
   int32_t ro = rand_on;
   if(dev & DRAW_PEOPLE_LAYER)
   {
-    if(interpolate)
-      current_level->interpolate_draw_objects(v);
+    if(in_between && !(dev & MAP_MODE))
+      current_level->interpolate_draw_objects(v, frame);
     else
       current_level->draw_objects(v);
   }
@@ -1076,8 +1076,9 @@ void Game::draw_map(view *v, int interpolate)
           if (reflective_surfaces)
             get_fg(fort_num)->im->PutColor(reflective_surfaces.get(), vec2i(draw_x, draw_y), WallReflection);
 
-          if(!(dev & EDIT_MODE))
-          current_level->mark_seen(x, y);
+          if(!(dev & EDIT_MODE)) {
+            if (!in_between) current_level->mark_seen(x, y);
+          }
           else
           {
         screen->line(draw_x, draw_y, draw_x + xinc, draw_y + yinc, wm->bright_color());
@@ -1150,9 +1151,8 @@ void Game::draw_map(view *v, int interpolate)
 
     wm->font()->put_string(screen, x1 + 5, y1 + 5,
                    help_text, color);
-    if(color > 30)
-        help_text_frames = -1;
-    else help_text_frames++;
+    if (!in_between)
+      help_text_frames = color > 30 ? -1 : help_text_frames + 1;
 
       }
     }
@@ -1209,6 +1209,11 @@ void Game::draw_map(view *v, int interpolate)
     profile_update();
 
   sbar.draw_update();
+  if (in_between) {
+    v->last_x = camera.x;
+    v->last_y = camera.y;
+  }
+  between_ticks = false;
 }
 
 void Game::put_fg(int x, int y, int type)
@@ -1621,8 +1626,9 @@ void Game::show_time()
     console_font->put_string(screen, first_view->cx1, first_view->cy1 + 10, str);
 }
 
-void Game::update_screen()
+void Game::update_screen(int frame)
 {
+  const Uint64 render_start = SDL_GetTicksNS();
   if(state == HELP_STATE)
     draw_help();
   else if(current_level)
@@ -1640,8 +1646,9 @@ void Game::update_screen()
       w=(f->cx2 - f->cx1 + 1);
       h=(f->cy2 - f->cy1 + 1);
 
-      total_active += current_level->add_drawables(f->xoff()-w / 4, f->yoff()-h / 4,
+      const int drawn = current_level->add_drawables(f->xoff()-w / 4, f->yoff()-h / 4,
                              f->xoff()+w + w / 4, f->yoff()+h + h / 4);
+      if (frame == frames_per_tick) total_active += drawn;
 
     }
       }
@@ -1650,12 +1657,12 @@ void Game::update_screen()
       {
         if(f->drawable())
     {
-      if(interpolate_draw)
+      if(frame == frames_per_tick && interpolate_draw && (dev & EDIT_MODE))
       {
-            draw_map(f, 1);
+            draw_map(f, frames_per_tick / 2);
         wm->flush_screen();
       }
-          draw_map(f, 0);
+          draw_map(f, frame);
     }
       }
       if(current_automap)
@@ -1675,7 +1682,7 @@ void Game::update_screen()
     cache.prof_poll_end();
 
   wm->flush_screen();
-
+  last_render_ms = (SDL_GetTicksNS() - render_start) / 1000000.0f;
 }
 
 void Game::do_intro()
@@ -1706,7 +1713,26 @@ int Game::calc_speed()
 
     int ret = 0;
 
-    if (dev & EDIT_MODE)
+    if (state == RUN_STATE && current_level && !(dev & (EDIT_MODE | MAP_MODE)) &&
+        need_delay && !no_delay && !req_name[0] && !req_end && !done() &&
+        !cache.prof_is_on() && !DEFINEDP(l_post_render->GetFunction()))
+    {
+        // Spend the original tick wait on evenly spaced renders. Skip missed slots
+        // instead of drawing several frames in a burst on a busy machine.
+        for (int frame = 1; frame < frames_per_tick; ++frame) {
+            const float present_at = gameplay_tick_ms * frame / frames_per_tick;
+            const float elapsed = frame_timer.PollMs();
+            if (elapsed >= present_at) continue;
+            const float start_at = Max(elapsed, present_at - last_render_ms);
+            if (start_at + last_render_ms + 1.0f >= gameplay_tick_ms) break;
+            frame_timer.WaitMs(start_at);
+            update_screen(frame);
+        }
+        frame_timer.WaitMs(gameplay_tick_ms);
+        avg_ms += 0.1f * (frame_timer.PollMs() - deltams);
+        frame_panic = 0;
+    }
+    else if (dev & EDIT_MODE)
     {
         // ECS - Added this case and the wait.  It's a cheap hack to ensure
         // that we don't exceed 30FPS in edit mode and hog the CPU.
@@ -2115,10 +2141,6 @@ void Game::step()
     set_key_down(JK_ESC, 0);
       }
       ambient_ramp = 0;
-      view *v;
-      for(v = first_view; v; v = v->next)
-        v->update_scroll();
-
       cache.prof_poll_start();
       current_level->tick();
       sbar.step();
@@ -2248,7 +2270,7 @@ void Game::draw(int scene_mode)
     screen->line(screen->Size().x-1, 0, screen->Size().x-1, screen->Size().y-1, bc); */
 
     for(view *f = first_view; f; f = f->next)
-        draw_map(f, 0);
+        draw_map(f);
 
     sbar.redraw(screen);
 }

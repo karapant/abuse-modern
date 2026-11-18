@@ -11,3 +11,4 @@ bool platform_screenshot(const char *path);
 bool platform_set_fullscreen(bool enabled);
 
 bool platform_set_view_resolution(int preset);
+bool platform_set_smooth_pixels(bool enabled);

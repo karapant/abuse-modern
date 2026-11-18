@@ -3,6 +3,8 @@
 A modern source port of Abuse 0.8 with SDL3, CMake, readable menus,
 key rebinding, a new HUD and dual-stick gamepad support. Original gameplay and maps are retained.
 
+![The same gameplay scene with Enhancements off and with all Enhancements on](resources/enhancements-comparison.png)
+
 Builds and tests on **Linux and macOS**. Windows is not currently supported.
 
 ## Build
@@ -70,9 +72,13 @@ persist. **Settings → Display mode** switches between windowed and native desk
 fullscreen. **View resolution** changes immediately: 320×200 (original), 480×300,
 640×400 or widescreen 640×360. Larger views show more of the level with smaller
 characters. **Window scale** changes window size. Under **Settings → Enhancements**, toggle
-**Modern HUD**, **Enhanced Lighting** and **Checkpoint Feedback**. All three are
-enabled by default and saved. Checkpoint Feedback marks nearby save consoles
-and confirms a successful save.
+**Modern HUD**, **Enhanced Lighting**, **Enhanced projectiles**, and **Checkpoint Feedback**.
+These are on by default. Checkpoint Feedback marks nearby save consoles and
+confirms a successful save. Enhanced projectiles adds tapered beams and short
+weapon trails.
+**Smooth pixels** applies an optional 2× edge-aware filter to the displayed frame.
+It takes effect immediately, is saved, and defaults to off. Gameplay interpolates
+camera and object motion at up to 60 frames per second.
 Enhanced Lighting gives round lights a warm tint and directional lights a cool
 tint. It smooths light falloff and adds colored flashes, sparks and
 smoke to explosions that use the game's flash effect. Lasers, plasma and rockets
@@ -81,6 +87,13 @@ fullscreen; use `-windowed` to start windowed. New configurations use a 480×300
 view. Use `-view 640x360` for a temporary override.
 Command-line options override saved settings for that launch. Saves/settings normally live in
 `~/.local/share/abuse-modern/abuse-modern/` on Linux. Override with `ABUSE_SAVE_PATH`.
+
+## Art tools
+
+Run `python3 scripts/tile_browser.py /path/to/data` to build
+`build/tile-browser.html`. Open it in a browser to inspect original tiles and
+their campaign usage, or select a suggested art batch. **Show in level**
+highlights a tile among its neighbors in sampled placements. The report stays local.
 
 ## Tests
 

@@ -8,9 +8,11 @@ struct GameSettings
     int fullscreen = 1, scale = 3;
     int wheel_weapons = 1;
     int modern_hud = 1, enhanced_lighting = 1, checkpoint_feedback = 1;
+    int smooth_pixels = 0;
+    int enhanced_projectiles = 1;
     int view_resolution = 1; // 480x300: more surroundings than the original view
 };
-enum class Setting { Effects, Music, Difficulty, Fullscreen, Scale, ViewResolution, WheelWeapons, ModernHud, EnhancedLighting, CheckpointFeedback };
+enum class Setting { Effects, Music, Difficulty, Fullscreen, Scale, ViewResolution, WheelWeapons, ModernHud, EnhancedLighting, CheckpointFeedback, SmoothPixels, EnhancedProjectiles };
 extern GameSettings game_settings;
 extern GameSettings saved_settings;
 bool settings_load(const std::string &path, GameSettings &settings);
