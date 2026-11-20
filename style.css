@@ -68,18 +68,32 @@ figcaption { margin-top: .6rem; color: var(--muted); }
 .checkpoint { display: flex; align-items: center; gap: .75rem; }
 .checkpoint img { width: 4.5rem; flex: none; }
 .download-section { background: #1b1b1b; border-block: 1px solid var(--border); }
-.downloads { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin-block: 1.5rem; }
-.downloads .button { width: 100%; height: 100%; }
-.downloads small { display: block; color: var(--muted); font-size: .9rem; font-weight: 500; }
+.release-summary { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1.25rem; }
+.release-summary p { margin: 0; }
+.downloads { list-style: none; padding: 0; margin-block: 1.5rem; border-top: 1px solid var(--border); }
+.downloads li {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: .65rem 1.5rem;
+  padding: 1.1rem .75rem;
+  border-bottom: 1px solid var(--border);
+}
+.downloads p { margin: 0; color: var(--muted); }
+.download-platform p { margin-top: .35rem; font-size: .95rem; }
+.download-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1rem; }
+.download-actions .button { min-width: 8rem; text-align: center; }
 .text-link { color: var(--accent); text-underline-offset: .22em; }
 footer { min-height: 5.5rem; padding-block: 1.2rem; color: var(--muted); font-size: .9rem; }
 @media (max-width: 48rem) {
-  .downloads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .downloads li { grid-template-columns: minmax(0, 1fr) auto; }
+  .download-install { grid-column: 1 / -1; grid-row: 2; }
   .hero { min-height: 26rem; }
 }
 @media (max-width: 34rem) {
   .wrap { width: calc(100% - 2rem); }
   .features { grid-template-columns: 1fr; }
+  .downloads li { grid-template-columns: 1fr; padding-inline: 0; }
   .hero { background-image: linear-gradient(90deg, #101215f5, #10121582), url("screenshots/enhancements-comparison.png"); }
   .hero-content { padding-block: 3rem; }
 }

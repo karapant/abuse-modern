@@ -2,42 +2,70 @@
 
 const repository = "karapant/abuse-modern";
 const releasePath = `https://github.com/${repository}/releases/`;
-const status = document.querySelector("#release-status");
+const releaseStatus = document.querySelector("#release-status");
+const sizeFormat = new Intl.NumberFormat("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const dateFormat = new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" });
 
 async function showLatestRelease() {
     const response = await fetch(`https://api.github.com/repos/${repository}/releases/latest`, {
         headers: { Accept: "application/vnd.github+json" }
     });
     if (response.status === 404) {
-        status.textContent = "The first public release will appear on GitHub when it’s published.";
+        releaseStatus.textContent = "The first public release will appear on GitHub when it’s published.";
         return;
     }
     if (!response.ok) return;
 
     const release = await response.json();
-    let hasPackages = false;
-    for (const button of document.querySelectorAll("[data-package]")) {
-        if (release.html_url.startsWith(`${releasePath}tag/`)) {
-            button.href = release.html_url;
-        }
-        const asset = release.assets.find(({ name, browser_download_url }) =>
-            name.startsWith("abuse-modern-") &&
-            name.endsWith(`-${button.dataset.package}`) &&
-            browser_download_url.startsWith(`${releasePath}download/`)
+    if (!release.html_url.startsWith(`${releasePath}tag/`)) return;
+
+    const notes = document.querySelector("#release-notes");
+    notes.href = release.html_url;
+    notes.hidden = false;
+
+    const published = new Date(release.published_at);
+    const releaseDate = release.published_at && Number.isFinite(published.getTime())
+        ? ` · Published ${dateFormat.format(published)}`
+        : "";
+    releaseStatus.textContent = `Latest release ${release.tag_name}${releaseDate}`;
+
+    const assets = release.assets.filter(({ browser_download_url }) =>
+        browser_download_url.startsWith(`${releasePath}download/`)
+    );
+
+    for (const row of document.querySelectorAll("[data-package]")) {
+        const download = row.querySelector("[data-download]");
+        download.href = release.html_url;
+
+        const asset = assets.find(({ name }) =>
+            name.startsWith("abuse-modern-") && name.endsWith(`-${row.dataset.package}`)
         );
-        if (asset) {
-            button.href = asset.browser_download_url;
-            hasPackages = true;
-            if (button.dataset.package === "windows-x86_64-setup.exe") {
-                document.querySelector("#windows-build").hidden = true;
-            }
+        if (!asset) continue;
+
+        download.href = asset.browser_download_url;
+        download.textContent = "Download";
+        download.setAttribute("aria-label", `Download Abuse Modern for ${row.dataset.platform}`);
+
+        if (Number.isFinite(asset.size) && asset.size > 0) {
+            const size = row.querySelector("[data-size]");
+            size.textContent = ` · ${sizeFormat.format(asset.size / 1_000_000)} MB`;
+            size.hidden = false;
+        }
+
+        const checksum = assets.find(({ name }) => name === `${asset.name}.sha256`);
+        if (checksum) {
+            const link = row.querySelector("[data-checksum]");
+            link.href = checksum.browser_download_url;
+            link.setAttribute("aria-label", `SHA-256 checksum for ${row.dataset.platform}`);
+            link.hidden = false;
+        }
+
+        if (row.dataset.package === "windows-x86_64-setup.exe") {
+            document.querySelector("#windows-build").hidden = true;
         }
     }
-    status.textContent = hasPackages
-        ? `Latest release ${release.tag_name}. Choose a platform to download or view its release notes.`
-        : `Latest release ${release.tag_name}. Open the release notes to see available files.`;
 }
 
 showLatestRelease().catch(() => {
-    // The links already point to the GitHub Releases page.
+    // The package links already point to GitHub Releases.
 });
