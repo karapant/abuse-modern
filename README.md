@@ -1,145 +1,33 @@
 # Abuse Modern
 
-A modern source port of Abuse 0.8 with SDL3, CMake, readable menus,
-key rebinding, a new HUD and dual-stick gamepad support. Original gameplay and maps are retained.
+An SDL3 port of Abuse 0.8 with widescreen play, redesigned menus, and dual-stick gamepad support.
 
-![The same gameplay scene with Enhancements off and with all Enhancements on](resources/enhancements-comparison.png)
+[Download Abuse Modern](https://github.com/karapant/abuse-modern/releases/latest) · [Project website](https://karapant.github.io/abuse-modern/)
 
-[Download from GitHub Releases](https://github.com/karapant/abuse-modern/releases)
+## Install and play
 
-[Project website and screenshots](https://karapant.github.io/abuse-modern/)
+- **Windows x64** — Run the setup `.exe`, then open **Abuse Modern** from the Start menu.
+- **Linux x64** — Extract the `.tar.gz` and run `./play` from the extracted folder.
+- **macOS** — Open the Apple Silicon or Intel `.dmg` for your Mac, then run **Play Abuse Modern.command**.
 
-Builds and tests on **Linux, macOS and Windows**.
+On first launch, download the Abuse 0.8 game data through the launcher or import an archive or folder you already have.
 
-## Install from a release
+Use **WASD** to move, the **mouse** to aim, and **left click** to fire. Press **Esc** to pause. Change bindings and controller settings under **Settings**.
 
-On Linux x86-64, extract the archive and run `./play` from its folder. On
-macOS, choose the Apple Silicon or Intel disk image and open
-**Play Abuse Modern.command**. On Windows x86-64, run the setup `.exe` and open
-**Abuse Modern** from the Start menu. The release packages include the engine and
-launcher. macOS uses ad-hoc signatures and may ask you to approve the download
-in System Settings.
+## Main menu
 
-On the first launch, choose the Abuse 0.8 download from `abuse.zoy.org`,
-paste a direct HTTP(S) link to a compatible ZIP or tar archive, or point the
-launcher to a local archive or the folder containing `abuse.lsp`. If a
-download fails, the launcher offers the same choices again. It stores the
-imported files in your user data folder for future launches.
+| Before · Abuse 0.8 | After · Abuse Modern |
+| --- | --- |
+| ![Original main menu with icon buttons](resources/main-menu-classic.png) | ![Modern main menu with labeled options](resources/main-menu-modern.png) |
 
-Game data downloads directly to your machine. The original shareware
-release's public-domain grant excludes the copyrighted sounds and retail
-content. Release packages keep the game data and music patches separate.
-See the [original release notice](https://sources.debian.org/src/abuse/2.00-12/README).
+## Build from source
 
-## Build
-
-Requires a C++17 compiler, CMake 3.24+, Git and pkg-config. The setup script
-supports apt, dnf, pacman, zypper and Homebrew:
+Use CMake 3.24+, Git, and a C++17 compiler. On Linux and macOS, run `./scripts/setup.sh --install` to install dependencies. On Windows, build from the MSYS2 UCRT64 shell with MinGW-w64 GCC, CMake, Ninja, and pkgconf.
 
 ```sh
-./scripts/setup.sh --plan --music       # preview dependencies
-./scripts/setup.sh --install --music    # install dependencies
-./scripts/setup.sh --check
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
+./build/abuse -datadir /path/to/folder-containing-abuse.lsp
 ```
 
-CMake downloads pinned SDL3/SDL3_mixer sources if suitable versions are not installed.
-The first configure needs internet access. On macOS, install Apple command-line
-tools first: `xcode-select --install`. On Windows, use the MSYS2 UCRT64
-shell with the MinGW-w64 GCC, CMake, Ninja and pkgconf packages.
-
-## Run a local build
-
-Download the assets from [Abuse downloads](http://abuse.zoy.org/wiki/download)
-and extract them separately. Use the directory containing `abuse.lsp`:
-
-```sh
-./build/abuse -datadir /path/to/data
-```
-
-A local `data/` folder is ignored by Git. Useful options: `-fullscreen`,
-`-windowed`, `-nosound`, `-edit`, `-scale 1` through `-scale 8`, and `--help`.
-
-**Music:** Ubuntu/Debian needs `sudo apt install freepats` (included by the
-setup script's `--music` option). Elsewhere, install TiMidity-compatible `.pat`
-instruments and set `TIMIDITY_CFG=/path/to/freepats.cfg`. SoundFont-only `.sf2`
-files are insufficient; sound effects work without music patches.
-
-## Controls
-
-**Keyboard/mouse:** WASD moves/jumps/uses, mouse aims, left click fires,
-right click uses the special action, and the wheel changes weapons.
-**Settings → Mouse wheel** enables/disables weapon cycling; menu scrolling stays
-available. Wheel controls follow your saved Previous/Next weapon bindings.
-Escape pauses/returns; F11 toggles fullscreen; F12 toggles mouse grab.
-Change bindings under **Settings → Key bindings**.
-
-**Gamepad:** requires two sticks. Devices missing either stick show a warning
-and have gameplay input disabled; menu navigation still works.
-
-| Input | Action |
-| --- | --- |
-| Left stick / D-pad | Move |
-| Right stick | Aim |
-| Right trigger | Fire |
-| South (A / Cross) | Jump / confirm |
-| East (B / Circle) | Use, crouch / cancel |
-| Left trigger / West | Special action |
-| Bumpers | Change weapons / menu pages |
-| Start | Pause / back |
-
-Adjust the dead zone under **Settings → Controller**. Network text fields need
-a keyboard. Saving uses the original in-level save consoles.
-
-Bindings, controller settings, volumes, difficulty, view resolution and window scale
-persist. **Settings → Display mode** switches between windowed and native desktop
-fullscreen. **View resolution** changes immediately: 320×200 (original), 480×300,
-640×400 or widescreen 640×360. Larger views show more of the level with smaller
-characters. **Window scale** changes window size. Under **Settings → Enhancements**, toggle
-**Modern HUD**, **Enhanced Lighting**, **Enhanced projectiles**, and **Checkpoint Feedback**.
-These are on by default. Checkpoint Feedback marks nearby save consoles and
-confirms a successful save. Enhanced projectiles adds tapered beams and short
-weapon trails.
-**Smooth pixels** applies an optional 2× edge-aware filter to the displayed frame.
-It takes effect immediately, is saved, and defaults to off. Gameplay interpolates
-camera and object motion at up to 60 frames per second.
-Enhanced Lighting gives round lights a warm tint and directional lights a cool
-tint. It smooths light falloff and adds colored flashes, sparks and
-smoke to explosions that use the game's flash effect. Lasers, plasma and rockets
-cast subtle reflections on nearby walls as they travel. Launches start in native
-fullscreen; use `-windowed` to start windowed. New configurations use a 480×300
-view. Use `-view 640x360` for a temporary override.
-Command-line options override saved settings for that launch. Saves/settings normally live in
-`~/.local/share/abuse-modern/abuse-modern/` on Linux. Override with `ABUSE_SAVE_PATH`.
-
-## Art tools
-
-Run `python3 scripts/tile_browser.py /path/to/data` to build
-`build/tile-browser.html`. Open it in a browser to inspect original tiles and
-their campaign usage, or select a suggested art batch. **Show in level**
-highlights a tile among its neighbors in sampled placements. The report stays local.
-
-## Tests
-
-```sh
-ctest --test-dir build --output-on-failure
-```
-
-CI checks Linux (GCC/Clang), macOS and Windows (MinGW-w64) without game assets. For additional
-save/load, menu, controller-warning and intro-music tests:
-
-```sh
-cmake -S . -B build \
-  -DABUSE_TEST_ASSET_DIR=/path/to/data \
-  -DABUSE_TEST_TIMIDITY_CFG=/path/to/freepats.cfg
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-```
-
-Engine integration tests run on Linux with isolated saves and a dummy display.
-
-## License
-
-**GPL-2.0-or-later.** See [LICENSE](LICENSE) for terms and original credits.
-Game assets, instrument patches and dependencies retain their separate licenses.
+[GPL-2.0-or-later](LICENSE) for the engine. Game data retains its original licensing.
