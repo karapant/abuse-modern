@@ -25,9 +25,9 @@ Use **WASD** to move, the **mouse** to aim, and **left click** to fire. Press **
 Use CMake 3.24+, Git, and a C++17 compiler. On Linux and macOS, run `./scripts/setup.sh --install` to install dependencies. On Windows, build from the MSYS2 UCRT64 shell with MinGW-w64 GCC, CMake, Ninja, and pkgconf.
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/abuse -datadir /path/to/folder-containing-abuse.lsp
+./build/abuse -datadir "/path/to/folder-containing-abuse.lsp"
 ```
 
 [GPL-2.0-or-later](LICENSE) for the engine. Game data retains its original licensing.
