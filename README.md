@@ -1,6 +1,6 @@
 # Abuse Modern
 
-An SDL3 port of Abuse 0.8 with widescreen play, redesigned menus, and dual-stick gamepad support.
+An SDL3 port of Abuse 0.8 with upgraded graphics, widescreen play, redesigned menus, and dual-stick gamepad support.
 
 [Download Abuse Modern](https://github.com/karapant/abuse-modern/releases/latest) · [Project website](https://karapant.github.io/abuse-modern/)
 
@@ -14,11 +14,21 @@ On first launch, download the Abuse 0.8 game data through the launcher or import
 
 Use **WASD** to move, the **mouse** to aim, and **left click** to fire. Press **Esc** to pause. Change bindings and controller settings under **Settings**.
 
-## Main menu
+## Before and after
+
+### Main menu
 
 | Before · Abuse 0.8 | After · Abuse Modern |
 | --- | --- |
 | ![Original main menu with icon buttons](resources/main-menu-classic.png) | ![Modern main menu with labeled options](resources/main-menu-modern.png) |
+
+### In-game graphics
+
+The same scene with enhancements off (left) and on (right). Look for the redesigned HUD, the gold checkpoint marker, and the brighter projectile trail casting light on nearby terrain.
+
+![Gameplay comparison with enhancements off on the left and on on the right](resources/enhancements-comparison.png)
+
+Toggle the graphics upgrades under **Settings → Enhancements**. Abuse Modern also adds smoother camera and object motion and an optional pixel filter.
 
 ## Build from source
 
