@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Build a portable Abuse Modern release package from a compiled engine."""
+"""Build an Abuse Modern release package from a compiled engine."""
 
 import argparse
 import hashlib
@@ -60,13 +60,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, default=ROOT / "build")
     parser.add_argument("--output", type=Path, default=ROOT / "out")
-    parser.add_argument("--platform", choices=("linux-x86_64", "macos-arm64", "macos-x86_64"), required=True)
+    parser.add_argument("--platform", choices=("linux-x86_64", "macos-arm64", "macos-x86_64", "windows-x86_64"),
+                        required=True)
     launcher_options = parser.add_mutually_exclusive_group()
     launcher_options.add_argument("--python-launcher", action="store_true", help="developer package using the system Python")
     launcher_options.add_argument("--bundle-system-python", action="store_true",
                                   help="offline Linux build bundling this distribution's Python")
     args = parser.parse_args()
-    if args.platform.startswith("macos-") != (sys.platform == "darwin"):
+    native_system = {"win32": "windows", "darwin": "macos", "linux": "linux"}.get(sys.platform)
+    if args.platform.split("-", 1)[0] != native_system:
         parser.error("Build each release package on its target operating system.")
     if args.bundle_system_python and not sys.platform.startswith("linux"):
         parser.error("--bundle-system-python requires Linux.")
@@ -74,6 +76,11 @@ def main():
     cache = dict(re.findall(r"^([^/#\n:]+):[^=\n]+=(.*)$", (build / "CMakeCache.txt").read_text(), re.M))
     version = cache["CMAKE_PROJECT_VERSION"]
     name = f"abuse-modern-{version}-{args.platform}"
+    windows = native_system == "windows"
+    if windows and args.python_launcher:
+        parser.error("The Windows installer requires the bundled Python launcher.")
+    if windows and not shutil.which("makensis"):
+        parser.error("Install NSIS and add makensis to PATH to build the Windows installer.")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="abuse-release-") as temp:
@@ -81,7 +88,7 @@ def main():
         package = temp / name
         subprocess.run(["cmake", "--install", str(build), "--prefix", str(package)], check=True)
         shutil.copy2(ROOT / "LICENSE", package)
-        play = "Play Abuse Modern.command" if sys.platform == "darwin" else "./play"
+        play = {"macos": "Play Abuse Modern.command", "windows": "Abuse Modern from the Start menu"}.get(native_system, "./play")
         (package / "START_HERE.txt").write_text(
             f"Run {play} to install game data and start Abuse Modern.\n"
             "First launch offers the upstream download, an archive URL, or a local archive or directory.\n"
@@ -110,29 +117,36 @@ def main():
                             "--distpath", str(package), str(ROOT / "scripts/launch-release.py")], check=True)
             install_python_notices(notices)
 
-        launcher_script = """#!/bin/sh
-cd "$(dirname "$0")" || exit 1
-"""
-        if args.bundle_system_python:
-            launcher_script += """export PYTHONHOME="$PWD/runtime"
-unset PYTHONPATH
-export LD_LIBRARY_PATH="$PWD/runtime/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec ./runtime/bin/python3 -S -s ./launch-release.py "$@"
-"""
-        else:
-            launcher_script += 'exec ./abuse-launcher "$@"\n'
-        launch = package / play
-        launch.write_text(launcher_script)
-        launch.chmod(0o755)
+        if not windows:
+            launcher_script = '#!/bin/sh\ncd "$(dirname "$0")" || exit 1\n'
+            if args.bundle_system_python:
+                launcher_script += (
+                    'export PYTHONHOME="$PWD/runtime"\n'
+                    'unset PYTHONPATH\n'
+                    'export LD_LIBRARY_PATH="$PWD/runtime/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"\n'
+                    'exec ./runtime/bin/python3 -S -s ./launch-release.py "$@"\n'
+                )
+            else:
+                launcher_script += 'exec ./abuse-launcher "$@"\n'
+            launch = package / play
+            launch.write_text(launcher_script)
+            launch.chmod(0o755)
         if sys.platform == "darwin":
             binaries = list((package / "bin").iterdir())
             if not args.python_launcher:
                 binaries.append(package / "abuse-launcher")
             for binary in binaries:
                 subprocess.run(["codesign", "--force", "--sign", "-", str(binary)], check=True)
-        subprocess.run([str(launch), "--help"], check=True, stdout=subprocess.DEVNULL)
-        subprocess.run([str(package / "bin/abuse"), "--help"], check=True, stdout=subprocess.DEVNULL)
-        if sys.platform == "darwin":
+        launcher_check = package / "abuse-launcher.exe" if windows else launch
+        subprocess.run([str(launcher_check), "--help"], check=True, stdout=subprocess.DEVNULL)
+        game = package / "bin" / ("abuse.exe" if windows else "abuse")
+        subprocess.run([str(game), "--help"], check=True, stdout=subprocess.DEVNULL)
+        if windows:
+            archive = output / f"{name}-setup.exe"
+            subprocess.run(["makensis", "/WX", f"/DPRODUCT_VERSION={version}",
+                            f"/DPACKAGE_DIR={package}", f"/DSETUP_FILE={archive}",
+                            str(ROOT / "scripts/windows-installer.nsi")], check=True)
+        elif sys.platform == "darwin":
             archive = output / f"{name}.dmg"
             subprocess.run(["hdiutil", "create", "-ov", "-format", "UDZO", "-volname", "Abuse Modern",
                             "-srcfolder", str(package), str(archive)], check=True)

@@ -15,8 +15,8 @@ Builds and tests on **Linux, macOS and Windows**.
 
 On Linux x86-64, extract the archive and run `./play` from its folder. On
 macOS, choose the Apple Silicon or Intel disk image and open
-**Play Abuse Modern.command**. On Windows x86-64, extract the ZIP and run
-**Play Abuse Modern.cmd**. The release packages include the engine and
+**Play Abuse Modern.command**. On Windows x86-64, run the setup `.exe` and open
+**Abuse Modern** from the Start menu. The release packages include the engine and
 launcher. macOS uses ad-hoc signatures and may ask you to approve the download
 in System Settings.
 

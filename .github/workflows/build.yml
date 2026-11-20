@@ -46,6 +46,9 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -53,10 +56,41 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-nsis
             mingw-w64-ucrt-x86_64-pkgconf
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=ON -DCMAKE_DISABLE_FIND_PACKAGE_SDL3_mixer=ON \
+            -DCMAKE_EXE_LINKER_FLAGS=-static
       - name: Build
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Build Windows installer
+        run: |
+          python="$(cygpath -u "$pythonLocation")/python.exe"
+          "$python" -m pip install pyinstaller==6.12.0 certifi==2026.10.23
+          "$python" scripts/package-release.py --platform windows-x86_64
+      - name: Smoke-test Windows installer
+        shell: pwsh
+        run: |
+          $setup = Get-Item out/*-setup.exe
+          $install = Join-Path $env:LOCALAPPDATA 'Programs\Abuse Modern'
+          $launcher = Join-Path $install 'abuse-launcher.exe'
+          $uninstaller = Join-Path $install 'Uninstall.exe'
+          $result = Start-Process $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($result.ExitCode -ne 0 -or !(Test-Path $launcher) -or !(Test-Path $uninstaller)) {
+            throw "Installer failed with exit code $($result.ExitCode)"
+          }
+          $result = Start-Process $launcher -ArgumentList '--help' -Wait -PassThru
+          if ($result.ExitCode -ne 0) { throw "Installed launcher failed with exit code $($result.ExitCode)" }
+          $result = Start-Process $uninstaller -ArgumentList '/S' -Wait -PassThru
+          if ($result.ExitCode -ne 0 -or (Test-Path $launcher)) {
+            throw "Uninstaller failed with exit code $($result.ExitCode)"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-installer
+          path: out/*-setup.exe*
+          if-no-files-found: error
