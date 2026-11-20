@@ -28,6 +28,9 @@ async function showLatestRelease() {
         if (asset) {
             button.href = asset.browser_download_url;
             hasPackages = true;
+            if (button.dataset.package === "windows-x86_64-setup.exe") {
+                document.querySelector("#windows-build").hidden = true;
+            }
         }
     }
     status.textContent = hasPackages
