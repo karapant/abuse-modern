@@ -67,6 +67,11 @@ figcaption { margin-top: .6rem; color: var(--muted); }
 .hud { width: 100%; background: black; }
 .checkpoint { display: flex; align-items: center; gap: .75rem; }
 .checkpoint img { width: 4.5rem; flex: none; }
+.menu-comparison { margin-top: 3rem; }
+.menu-comparison h3 { font-size: 1.75rem; }
+.menu-comparison p { color: var(--muted); }
+.menu-screenshots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.menu-screenshots img { image-rendering: pixelated; }
 .download-section { background: #1b1b1b; border-block: 1px solid var(--border); }
 .release-summary { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1.25rem; }
 .release-summary p { margin: 0; }
@@ -92,7 +97,7 @@ footer { min-height: 5.5rem; padding-block: 1.2rem; color: var(--muted); font-si
 }
 @media (max-width: 34rem) {
   .wrap { width: calc(100% - 2rem); }
-  .features { grid-template-columns: 1fr; }
+  .features, .menu-screenshots { grid-template-columns: 1fr; }
   .downloads li { grid-template-columns: 1fr; padding-inline: 0; }
   .hero { background-image: linear-gradient(90deg, #101215f5, #10121582), url("screenshots/enhancements-comparison.png"); }
   .hero-content { padding-block: 3rem; }
