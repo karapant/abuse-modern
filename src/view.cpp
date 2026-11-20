@@ -13,7 +13,12 @@
 #   include "config.h"
 #endif
 
-#include <unistd.h>
+#ifdef _WIN32
+#   include <cstdio>
+#   include <cstdlib>
+#else
+#   include <unistd.h>
+#endif
 
 #include "common.h"
 #include "sdlport/controller.h"
@@ -190,6 +195,12 @@ char const *get_login()
 #if defined __CELLOS_LV2__
     /* FIXME: retrieve login name */
     return "Player";
+#elif defined _WIN32
+    char const *login = std::getenv("USERNAME");
+    static char windows_user_name[sizeof(cur_user_name)];
+    std::snprintf(windows_user_name, sizeof(windows_user_name), "%s",
+                  login && *login ? login : "unknown");
+    return windows_user_name;
 #else
     char const *login = getlogin();
     return login ? login : "unknown";
