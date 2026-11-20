@@ -26,7 +26,9 @@ int main(int argc, char **argv)
     const bool startup = std::string(argv[1]) == "defaults" || std::string(argv[1]) == "fullscreen";
     const auto root = std::filesystem::current_path() / (startup ? std::string("preferences-") + argv[1] + "-fixture" : "preferences-startup-fixture");
     const auto asset_directory = root / std::filesystem::u8path(u8"Game data δοκιμή");
-    const auto path = (root / "settings.cfg").string();
+    const auto path = (root / "settings.cfg").u8string();
+    auto *environment = SDL_GetEnvironment();
+    require(SDL_UnsetEnvironmentVariable(environment, "ABUSE_PATH"), "clear external game-data override");
     if (startup) {
         std::filesystem::remove_all(root); std::filesystem::create_directories(asset_directory);
         std::ofstream(asset_directory / "abuse.lsp");
@@ -37,7 +39,8 @@ int main(int argc, char **argv)
             old.smooth_pixels = 1;
             require(settings_write(path, old), "prepare previous windowed preference");
         }
-        SDL_setenv_unsafe("ABUSE_SAVE_PATH", root.string().c_str(), 1); SDL_unsetenv_unsafe("ABUSE_PATH");
+        require(SDL_SetEnvironmentVariable(environment, "ABUSE_SAVE_PATH", root.u8string().c_str(), true),
+                "set the startup save directory");
         const auto assets = asset_directory.u8string();
         const char *args[] = {"preferences-startup-test", "-datadir", assets.c_str()};
         setup(3, const_cast<char **>(args));
@@ -82,8 +85,9 @@ int main(int argc, char **argv)
         require(settings_write(path, saved), "prepare saved preferences");
         return 0;
     }
-    const auto saves = root.string() + "/";
-    SDL_setenv_unsafe("ABUSE_SAVE_PATH", saves.c_str(), 1); SDL_unsetenv_unsafe("ABUSE_PATH");
+    const auto saves = root.u8string() + "/";
+    require(SDL_SetEnvironmentVariable(environment, "ABUSE_SAVE_PATH", saves.c_str(), true),
+            "set the restart save directory");
     const auto assets = asset_directory.u8string();
     const char *args[] = {"preferences-startup-test", "-datadir", assets.c_str(), "-windowed", "-view", "320x200", "-scale", "2",
                           "-sfx_volume", "127", "-music_volume", "0", "-difficulty", "extreme", "-nosound"};

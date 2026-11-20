@@ -185,7 +185,7 @@ void setup(int argc, char **argv)
     keys.b3 = key_value("CTRL_R"); keys.b4 = key_value("INSERT");
     set_filename_prefix(ASSETDIR);
     // A separate SDL preference directory avoids overwriting the original game's settings.
-    const char *save = getenv("ABUSE_SAVE_PATH");
+    const char *save = SDL_getenv("ABUSE_SAVE_PATH");
     char *allocated = save ? nullptr : SDL_GetPrefPath("abuse-modern", "abuse-modern");
     const char *pref = save ? save : allocated;
     if (!pref || !*pref) {
@@ -210,7 +210,7 @@ void setup(int argc, char **argv)
     // Start in native fullscreen; -windowed remains an explicit launch override.
     game_settings.fullscreen = 1;
     parseCommandLine(argc, argv);
-    if (const char *assets = getenv("ABUSE_PATH"); assets && *assets) set_filename_prefix(assets);
+    if (const char *assets = SDL_getenv("ABUSE_PATH"); assets && *assets) set_filename_prefix(assets);
     const std::string startup = std::string(get_filename_prefix()) + "abuse.lsp";
     if (!std::ifstream(std::filesystem::u8path(startup))) {
         fprintf(stderr, "Cannot find Abuse game data at %s. Use -datadir PATH.\n", get_filename_prefix());
