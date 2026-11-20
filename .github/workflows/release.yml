@@ -1,6 +1,9 @@
 name: Package releases
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   release:
     types: [published]
 permissions:
@@ -83,13 +86,15 @@ jobs:
           name: ${{ matrix.platform }}
           path: out/*
           if-no-files-found: error
-  attach:
-    if: github.event_name == 'release'
+  publish:
+    if: github.event_name != 'workflow_dispatch'
     needs: package
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
       - uses: actions/download-artifact@v4
         with:
           path: packages
@@ -98,5 +103,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" packages/*
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            gh release upload "$RELEASE_TAG" packages/*
+            exit
+          fi
+
+          draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || true)
+          case "$draft" in
+            true)
+              gh release upload "$RELEASE_TAG" packages/* --clobber
+              gh release edit "$RELEASE_TAG" --draft=false
+              ;;
+            false)
+              echo "Release $RELEASE_TAG is already published."
+              ;;
+            *)
+              gh release create "$RELEASE_TAG" packages/* --verify-tag --notes-from-tag \
+                --title "Abuse Modern $RELEASE_TAG"
+              ;;
+          esac
