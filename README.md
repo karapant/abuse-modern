@@ -7,13 +7,16 @@ key rebinding, a new HUD and dual-stick gamepad support. Original gameplay and m
 
 [Download from GitHub Releases](https://github.com/karapant/abuse-modern/releases)
 
-Builds and tests on **Linux and macOS**. Windows is not currently supported.
+[Project website and screenshots](https://karapant.github.io/abuse-modern/)
+
+Builds and tests on **Linux, macOS and Windows**.
 
 ## Install from a release
 
 On Linux x86-64, extract the archive and run `./play` from its folder. On
 macOS, choose the Apple Silicon or Intel disk image and open
-**Play Abuse Modern.command**. The release packages include the engine and
+**Play Abuse Modern.command**. On Windows x86-64, extract the ZIP and run
+**Play Abuse Modern.cmd**. The release packages include the engine and
 launcher. macOS uses ad-hoc signatures and may ask you to approve the download
 in System Settings.
 
@@ -43,7 +46,8 @@ cmake --build build --parallel
 
 CMake downloads pinned SDL3/SDL3_mixer sources if suitable versions are not installed.
 The first configure needs internet access. On macOS, install Apple command-line
-tools first: `xcode-select --install`.
+tools first: `xcode-select --install`. On Windows, use the MSYS2 UCRT64
+shell with the MinGW-w64 GCC, CMake, Ninja and pkgconf packages.
 
 ## Run a local build
 
@@ -122,7 +126,7 @@ highlights a tile among its neighbors in sampled placements. The report stays lo
 ctest --test-dir build --output-on-failure
 ```
 
-CI checks Linux (GCC/Clang) and macOS without game assets. For additional
+CI checks Linux (GCC/Clang), macOS and Windows (MinGW-w64) without game assets. For additional
 save/load, menu, controller-warning and intro-music tests:
 
 ```sh
