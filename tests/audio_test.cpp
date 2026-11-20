@@ -42,7 +42,7 @@ int main(int argc, char **argv)
         number(2, 2); number(16, 2); file.write("data", 4); number(400, 4);
         for (int i = 0; i < 200; ++i) number(0, 2);
         file.close();
-        set_filename_prefix(root.c_str());
+        set_filename_prefix(root.u8string().c_str());
         { sound_effect effect("test.wav"); effect.play(); SDL_Delay(10); }
         std::filesystem::remove_all(root);
     }

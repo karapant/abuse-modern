@@ -96,7 +96,7 @@ int main()
     std::filesystem::create_directories(assets / "config");
     std::ofstream(assets / "config/username.lsp") << "original assets";
     std::ofstream(assets / "config/fallback.lsp") << "fallback";
-    set_filename_prefix(assets.c_str());
+    set_filename_prefix(assets.u8string().c_str());
     const auto save_path = root.string() + "/";
     set_save_filename_prefix(save_path.c_str());
     {
