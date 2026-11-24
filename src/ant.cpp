@@ -13,6 +13,7 @@
 #endif
 
 #include <ctype.h>
+#include <algorithm>
 
 #include "common.h"
 
@@ -26,6 +27,8 @@
 #include "jrand.h"
 #include "clisp.h"
 #include "dev.h"
+#include "sdlport/platform.h"
+#include "ui/textmenu.h"
 
 enum {  ANT_need_to_dodge,     // ant vars
     ANT_no_see_time,
@@ -444,43 +447,36 @@ void fade_out(int steps);
 
 void show_stats()
 {
-  if (current_level)
-  {
+    if (!current_level) return;
+    int left, top, right, bottom;
+    screen->GetClip(left, top, right, bottom);
+    const auto size = screen->Size();
+    screen->SetClip(0, 0, size.x, size.y);
+    platform_end_menu_text();
     fade_out(8);
-    wm->set_mouse_position(0,0);
+    wm->set_mouse_position(0, 0);
     screen->clear();
-    image *im=cache.img(cache.reg("art/frame.spe","end_level_screen",SPEC_IMAGE,1));
-    im->put_image(screen,0,0);
 
+    auto *art = cache.img(cache.reg("art/frame.spe", "end_level_screen", SPEC_IMAGE, 1));
+    const int text_width = std::min(220, size.x - art->Size().x);
+    const int x = (size.x - art->Size().x - text_width) / 2;
+    art->put_image(screen, x, (size.y - art->Size().y) / 2);
+    std::string name = current_level->original_name();
+    const auto slash = name.find_last_of("/\\");
+    if (slash != std::string::npos) name.erase(0, slash + 1);
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".spe") == 0) name.resize(name.size() - 4);
+    if (name.size() == 7 && name.compare(0, 5, "level") == 0) name.erase(0, 5);
 
-    int x1=im->Size().x+1,y1=0,x2=xres,y2=screen->Size().y;
-    fade_in(NULL,16);
-
-    char name[50];
-    strcpy(name,current_level->original_name());
-    char dig1=name[strlen(name)-strlen(".spe")-2];
-    char dig2=name[strlen(name)-strlen(".spe")-1];
-
-
-    char msg[50];
-
-    if (isdigit(dig1) && isdigit(dig2))
-    {
-      if (dig1!='0')
-        sprintf(msg,"%s : %c%c",symbol_str("lev_complete"),dig1,dig2);
-      else
-        sprintf(msg,"%s : %c",symbol_str("lev_complete"),dig2);
-    } else sprintf(msg,"%s : %s",symbol_str("lev_complete"),current_level->original_name());
-
-    int w=wm->font()->width()*strlen(msg),h=wm->font()->height();
-    int x=(x1+x2)/2-w/2,y=(y1+y2)/2-h/2;
-    screen->bar(x-10,y-10,x+w+10,y+h+10,wm->bright_color());
-    screen->bar(x-9,y-9,x+w+9,y+h+9,wm->medium_color());
-
-    wm->font()->put_string(screen,x+1,y+1,msg,wm->dark_color());
-    wm->font()->put_string(screen,x,y,msg,wm->bright_color());
+    MenuText text(*big_font, platform_begin_menu_text());
+    const int center = x + art->Size().x + text_width / 2;
+    const auto title = text.fit(symbol_str("lev_complete"), text_width - 20);
+    const auto subtitle = text.fit(name, text_width - 20);
+    text.put(*screen, center - text.width(title) / 2, size.y / 2 - text.height() - 2, title, wm->bright_color());
+    text.put(*screen, center - text.width(subtitle) / 2, size.y / 2 + 2, subtitle, wm->bright_color());
+    fade_in(NULL, 16);
     wm->flush_screen();
     Timer now; now.WaitMs(500);
-  }
+    platform_end_menu_text();
+    screen->SetClip(left, top, right, bottom);
 }
 

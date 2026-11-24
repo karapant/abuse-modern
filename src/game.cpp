@@ -14,7 +14,9 @@
 #endif
 
 #include <ctype.h>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <setjmp.h>
 #include <unistd.h>
@@ -29,6 +31,8 @@
 #include "sdlport/joy.h"
 #include "sdlport/preferences.h"
 #include "sdlport/platform.h"
+#include "sdlport/controller.h"
+#include "sdlport/controls.h"
 #include "file_path.h"
 
 #include "dev.h"
@@ -64,6 +68,7 @@
 #include "chat.h"
 #include "demo.h"
 #include "netcfg.h"
+#include "ui/textmenu.h"
 
 #define SHIFT_RIGHT_DEFAULT 0
 #define SHIFT_DOWN_DEFAULT 30
@@ -72,6 +77,28 @@ extern CrcManager *net_crcs;
 
 Game *the_game = NULL;
 WindowManager *wm = NULL;
+static vec2i aim_hotspot(8, 8);
+
+void set_aim_cursor()
+{
+    auto *source = cache.img(c_target);
+    auto *outlined = new image(source->Size() + vec2i(2, 2));
+    outlined->clear();
+    const uint8_t outline = pal->find_closest_non0(8, 8, 8);
+    for (int y = 0; y < source->Size().y; ++y)
+        for (int x = 0; x < source->Size().x; ++x)
+            if (source->scan_line(y)[x])
+                for (int row = y; row < y + 3; ++row)
+                    for (int col = x; col < x + 3; ++col) outlined->scan_line(row)[col] = outline;
+    source->put_image(outlined, 1, 1, 1);
+    wm->set_mouse_shape(outlined, aim_hotspot.x + 1, aim_hotspot.y + 1);
+}
+
+void set_aim_cursor_hotspot(int x, int y)
+{
+    aim_hotspot = vec2i(x, y);
+    if (screen && wm) set_aim_cursor();
+}
 int dev, shift_down = SHIFT_DOWN_DEFAULT, shift_right = SHIFT_RIGHT_DEFAULT;
 double sum_diffs = 1, total_diffs = 12;
 int total_active = 0;
@@ -135,12 +162,9 @@ void handle_no_space()
 
 void Game::play_sound(int id, int vol, int32_t x, int32_t y)
 {
-    if(!(sound_avail & SFX_INITIALIZED))
-        return;
-    if(vol < 1)
-        return;
-    if(!player_list)
-        return;
+    const bool cue_enabled = game_settings.directional_sound && state == RUN_STATE && !(dev & (EDIT_MODE | MAP_MODE)) &&
+        demo_man.current_state() == demo_manager::NORMAL;
+    if (vol < 1 || !player_list || (!(sound_avail & SFX_INITIALIZED) && !cue_enabled)) return;
 
     int mindist = 500;
     view *cd = NULL;
@@ -161,13 +185,23 @@ void Game::play_sound(int id, int vol, int32_t x, int32_t y)
             mindist = d;
         }
     }
-    if(mindist >= 500)
-        return;
+    if (!cd) return;
 
     if(mindist < 100)
         mindist = 0;
     else
         mindist -= 100;
+
+    if (cue_enabled && cd->focus && mindist <= 400) {
+        const auto sound = std::find(cue_sound_ids.begin(), cue_sound_ids.end(), id);
+        if (sound != cue_sound_ids.end()) {
+            const int sx = x - cd->xoff() + cd->cx1, sy = y - cd->yoff() + cd->cy1;
+            if (sx < cd->cx1 || sy < cd->cy1 || sx > cd->cx2 || sy > cd->cy2) {
+                const auto index = size_t(sound - cue_sound_ids.begin());
+                sound_cues[index == 0 ? 0 : index <= 2 ? 1 : 2] = {vec2i(x, y), SDL_GetTicks() + 1650};
+            }
+        }
+    }
 
     // Calculate the position of the sound relative to the player
     int p = (cd->x_center() - x) / 2 + 128;
@@ -177,8 +211,110 @@ void Game::play_sound(int id, int vol, int32_t x, int32_t y)
         p = 255;
 
     int v = (400 - mindist) * sfx_volume / 400 - (127 - vol);
-    if(v > 0)
+    if(v > 0 && (sound_avail & SFX_INITIALIZED))
         cache.sfx(id)->play(v, 128, p);
+}
+
+void Game::note_weapon_pickup(view &v, int weapon, int ammo, bool acquired)
+{
+    if (state != RUN_STATE || &v != player_list || !v.local_player() || (dev & EDIT_MODE) ||
+        demo_man.current_state() != demo_manager::NORMAL) return;
+    const auto now = SDL_GetTicks();
+    auto match = std::find_if(pickup_notices.begin(), pickup_notices.end(),
+        [&](const PickupNotice &notice) { return notice.weapon == weapon && notice.expires > now; });
+    if (match == pickup_notices.end()) {
+        pickup_notices.back() = {};
+        match = pickup_notices.end() - 1;
+    }
+    std::rotate(pickup_notices.begin(), match, match + 1);
+    auto &notice = pickup_notices.front();
+    notice.weapon = weapon;
+    notice.ammo += ammo;
+    notice.acquired |= acquired;
+    notice.expires = now + 2200;
+}
+
+static std::string pickup_weapon_name(int weapon)
+{
+    const std::string_view type = object_names[weapon_types[weapon]];
+    if (type == "MGUN_TOP") return "Machine gun";
+    if (type == "GRENADE_TOP") return "Grenade launcher";
+    if (type == "ROCKET_TOP") return "Rocket launcher";
+    if (type == "FIREBOMB_TOP") return "Firebomb";
+    if (type == "PGUN_TOP") return "Plasma gun";
+    if (type == "LIGHT_SABER") return "Light saber";
+    if (type == "DFRIS_TOP") return "Death frisbee";
+    return "Weapon " + std::to_string(weapon + 1);
+}
+
+void Game::draw_gameplay_feedback(view &v)
+{
+    if (state != RUN_STATE || !v.focus || !v.local_player() || (dev & (EDIT_MODE | MAP_MODE))) return;
+    const auto now = SDL_GetTicks();
+    const auto active = [now](const auto &feedback) { return feedback.expires > now; };
+    const bool show_pickups = &v == player_list && std::any_of(pickup_notices.begin(), pickup_notices.end(), active);
+    const bool show_cues = game_settings.directional_sound && std::any_of(sound_cues.begin(), sound_cues.end(), active);
+    if (!show_pickups && !show_cues) return;
+    const auto center = vec2i((v.cx1 + v.cx2) / 2, (v.cy1 + v.cy2) / 2);
+    const int height = wm->font()->height();
+    int left, top, right, bottom;
+    screen->GetClip(left, top, right, bottom);
+    screen->SetClip(v.cx1, v.cy1, v.cx2 + 1, v.cy2 + 1);
+    const int background = pal->find_closest(18, 24, 30);
+    const int ink = pal->find_closest(236, 239, 226);
+    const int amber = pal->find_closest(241, 177, 73);
+    const int blue = pal->find_closest(105, 157, 194);
+    const auto badge = [&](int x, int y, const std::string &label, int accent) {
+        const int text_width = label.size() * wm->font()->width();
+        const int half = (text_width + 12) / 2;
+        if (v.cx2 - v.cx1 < 2 * half + 4 || v.cy2 - v.cy1 < height + 8) return;
+        x = std::clamp(x, v.cx1 + half + 2, v.cx2 - half - 2);
+        y = std::clamp(y, v.cy1 + 2, v.cy2 - height - 5);
+        screen->bar(x - half, y, x + half, y + height + 3, background);
+        screen->bar(x - half, y, x - half + 1, y + height + 3, accent);
+        wm->font()->put_string(screen, x - text_width / 2, y + 2, label.c_str(), ink);
+    };
+    if (show_pickups) {
+        int y = v.cy2 - height - 8;
+        for (const auto &notice : pickup_notices) {
+            if (notice.expires <= now) continue;
+            auto label = (notice.acquired ? "New: " : "") + pickup_weapon_name(notice.weapon);
+            if (notice.ammo) label += "  +" + std::to_string(notice.ammo) + " ammo";
+            badge(center.x, y, label, amber);
+            y -= height + 7;
+        }
+    }
+    if (show_cues) {
+        static const char *names[] = {"Door", "Lift", "Enemy alert"};
+        for (size_t i = 0; i < sound_cues.size(); ++i) {
+            const auto &cue = sound_cues[i];
+            if (cue.expires <= now) continue;
+            const auto pos = cue.position - vec2i(v.xoff() - v.cx1, v.yoff() - v.cy1);
+            if (pos.x >= v.cx1 && pos.x <= v.cx2 && pos.y >= v.cy1 && pos.y <= v.cy2) continue;
+            const auto delta = pos - center;
+            const int half_width = std::max(1, center.x - v.cx1), half_height = std::max(1, center.y - v.cy1);
+            const float horizontal = float(std::abs(delta.x)) / half_width;
+            const float vertical = float(std::abs(delta.y)) / half_height;
+            const float scale = std::max(horizontal, vertical);
+            const int x = center.x + int(delta.x / scale);
+            const int y = center.y + int(delta.y / scale) - height / 2;
+            std::string label = names[i];
+            if (horizontal >= vertical)
+                label = delta.x < 0 ? "< " + label : label + " >";
+            else
+                label += delta.y < 0 ? "  ^" : "  v";
+            const int row = height + 6;
+            const int inset = 6 + int(i) * row;
+            if (horizontal >= vertical) {
+                const int last_row = std::max(v.cy1 + 2, v.cy2 - 3 * row);
+                const int lane = std::clamp(y - row, v.cy1 + 2, last_row) + int(i) * row;
+                badge(x, lane, label, blue);
+            } else {
+                badge(x, y + (delta.y < 0 ? inset : -inset), label, blue);
+            }
+        }
+    }
+    screen->SetClip(left, top, right, bottom);
 }
 
 int get_option(char const *name)
@@ -195,9 +331,9 @@ int get_option(char const *name)
 }
 
 
-bool Game::set_view_resolution(int preset)
+bool Game::set_view_resolution(int preset, bool persist)
 {
-    if (!platform_set_view_resolution(preset)) return false;
+    if (!platform_set_view_resolution(preset, persist)) return false;
     delete small_render; small_render = nullptr; small_render_on = 0;
     recalc_local_view_space();
     // Menu/title views are separate from player_list.
@@ -461,7 +597,7 @@ void Game::set_state(int new_state)
     pal->load();    // restore old palette
 
     if(playing_state(state) &&  !(dev & EDIT_MODE))
-        wm->set_mouse_shape(cache.img(c_target)->copy(), 8, 8);
+        set_aim_cursor();
     else
         wm->set_mouse_shape(cache.img(c_normal)->copy(), 1, 1);
 
@@ -544,10 +680,74 @@ void Game::set_level(level *nl)
     current_level = nl;
 }
 
-void Game::load_level(char const *name)
+void scale_put(image *source, image *target, int x, int y, short width, short height);
+
+static void draw_fitted_art(image &art, int area_height, bool enlarge, int inset = 0)
 {
-    if(current_level)
-      delete current_level;
+    const auto original = art.Size();
+    const int area_width = screen->Size().x;
+    const int available_height = area_height - 2 * inset;
+    const int height_limit = enlarge ? available_height : std::min(available_height, original.y);
+    const int width = std::max(1, std::min(area_width - 2 * inset, height_limit * original.x / original.y));
+    const int height = std::max(1, width * original.y / original.x);
+    const int x = (area_width - width) / 2, y = (area_height - height) / 2;
+    if (width == original.x && height == original.y) art.put_image(screen, x, y);
+    else scale_put(&art, screen, x, y, width, height);
+}
+
+void draw_title_screen()
+{
+    int left, top, right, bottom;
+    screen->GetClip(left, top, right, bottom);
+    screen->SetClip(0, 0, screen->Size().x, screen->Size().y);
+    platform_end_menu_text();
+    screen->clear();
+    if (title_screen >= 0) draw_fitted_art(*cache.img(title_screen), screen->Size().y, true);
+    screen->SetClip(left, top, right, bottom);
+}
+
+static void show_loading_screen(const char *name, spec_directory &directory, bFILE *file)
+{
+    std::string label = name;
+    if (const auto *entry = directory.find("first name"); entry && entry->size >= 2) {
+        file->seek(entry->offset, 0);
+        const int length = file->read_uint8();
+        char original[256];
+        if (length > 1 && uint32_t(length) < entry->size &&
+            file->read(original, length) == length && original[length - 1] == '\0')
+            label = original;
+    }
+    const auto slash = label.find_last_of("/\\");
+    if (slash != std::string::npos) label.erase(0, slash + 1);
+    if (label.size() > 4 && label.compare(label.size() - 4, 4, ".spe") == 0) label.resize(label.size() - 4);
+    if (label.size() == 7 && label.compare(0, 5, "level") == 0 &&
+        isdigit(static_cast<unsigned char>(label[5])) && isdigit(static_cast<unsigned char>(label[6])))
+        label = "Level " + label.substr(5);
+
+    int left, top, right, bottom;
+    screen->GetClip(left, top, right, bottom);
+    const auto size = screen->Size();
+    screen->SetClip(0, 0, size.x, size.y);
+    MenuText text(*big_font, platform_begin_menu_text());
+    const int ink = pal->find_closest(236, 239, 226), muted = pal->find_closest(158, 171, 176);
+    const int caption = size.y - 42;
+    screen->clear(pal->find_closest(10, 14, 20));
+    if (title_screen >= 0) draw_fitted_art(*cache.img(title_screen), caption, true, 6);
+    const auto title = text.fit("Loading", size.x - 24, true);
+    label = text.fit(label, size.x - 24);
+    text.put(*screen, (size.x - text.width(title, true)) / 2, caption + 1, title, ink, true);
+    text.put(*screen, (size.x - text.width(label)) / 2, caption + 22, label, muted);
+    wm->flush_screen();
+    screen->SetClip(left, top, right, bottom);
+}
+
+void Game::load_level(char const *name, bool new_game)
+{
+    const uint32_t previous_play_ticks = current_level && !new_game ? current_level->time_played_ticks() : 0;
+    delete current_level;
+    current_level = nullptr;
+    pickup_notices = {};
+    sound_cues = {};
 
     bFILE *fp = open_file(name, "rb");
 
@@ -562,7 +762,11 @@ void Game::load_level(char const *name)
     else
     {
         spec_directory sd(fp);
+        const bool show_loading = !(dev & EDIT_MODE) && demo_man.current_state() == demo_manager::NORMAL;
+        if (show_loading) show_loading_screen(name, sd, fp);
         current_level = new level(&sd, fp, name);
+        if (!sd.find("player_info")) current_level->set_time_played_ticks(previous_play_ticks);
+        if (show_loading) platform_end_menu_text();
         delete fp;
     }
 
@@ -755,6 +959,61 @@ static void draw_checkpoint_lighting(view *v, int world_x, int world_y, int scal
     }
 }
 
+static void draw_interaction_prompt(view *v)
+{
+    if (!v->focus || !v->focus->hp() || !v->local_player() || !player_list || player_list->next ||
+        (dev & (EDIT_MODE | MAP_MODE)) || !(dev & DRAW_PEOPLE_LAYER) ||
+        demo_man.current_state() != demo_manager::NORMAL)
+        return;
+
+    int32_t left, top, right, bottom;
+    v->focus->picture_space(left, top, right, bottom);
+    const char *action = nullptr;
+    int nearest = std::numeric_limits<int>::max();
+    for (auto *object = current_level->first_active_object(); object; object = object->next_active) {
+        const int dx = std::abs(object->x - v->focus->x);
+        const int dy = std::abs(object->y - v->focus->y);
+        if (dx + dy >= nearest) continue;
+        const char *name = object_names[object->otype];
+        const auto state = object->aistate();
+        const char *candidate = nullptr;
+        if (!strcmp(name, "SWITCH") || !strcmp(name, "SWITCH_DELAY") || !strcmp(name, "SWITCH_ONCE")) {
+            if (dx < 20 && dy < 30 && (state == 0 || (state == 2 && !strcmp(name, "SWITCH"))))
+                candidate = "Use switch";
+        } else {
+            const int links = object->total_objects();
+            if (!strcmp(name, "RESTART_POSITION") && state <= 1)
+                candidate = "Save game";
+            else if ((!strcmp(name, "SMART_PLAT_SMALL") || !strcmp(name, "SMART_PLAT_BIG") ||
+                      !strcmp(name, "SMART_PLAT_RED")) && state == 0 && object->aitype() <= 1 &&
+                     (links == 2 || (links == 3 && object->get_object(2)->aistate())) &&
+                     !object->get_object(object->aitype())->aistate())
+                candidate = "Ride lift";
+            if (candidate) {
+                int32_t x1, y1, x2, y2;
+                object->picture_space(x1, y1, x2, y2);
+                if (x1 > right || x2 < left || y1 > bottom || y2 < top) candidate = nullptr;
+            }
+        }
+        if (candidate) {
+            nearest = dx + dy;
+            action = candidate;
+        }
+    }
+    if (!action) return;
+
+    const char *button = controller_use_hint();
+    const std::string key = button ? button : control_key_name(control_binding(ControlAction::Use));
+    const std::string message = "[" + key + "] " + action;
+    auto *font = wm->font();
+    const int width = message.size() * font->width();
+    const int x = (v->cx1 + v->cx2 - width) / 2;
+    const int y = v->cy2 - font->height() - 8;
+    screen->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
+    screen->bar(x - 6, y - 3, x + width + 5, y + font->height() + 2, pal->find_closest(12, 17, 22));
+    font->put_string(screen, x, y, message.c_str(), pal->find_closest(241, 219, 153));
+}
+
 void Game::draw_map(view *v, int frame)
 {
   const bool in_between = frame < frames_per_tick;
@@ -765,17 +1024,16 @@ void Game::draw_map(view *v, int frame)
 
   if(!current_level || state == MENU_STATE)
   {
-    if(title_screen >= 0)
-    {
-      if(state == SCENE_STATE)
+    if (state == SCENE_STATE && title_screen >= 0) {
         screen->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
-      image *tit = cache.img(title_screen);
-      tit->put_image(screen, screen->Size().x/2 - tit->Size().x/2,
-                    screen->Size().y/2 - tit->Size().y/2);
-      if(state == SCENE_STATE)
+        image *tit = cache.img(title_screen);
+        tit->put_image(screen, (screen->Size().x - tit->Size().x) / 2,
+                       (screen->Size().y - tit->Size().y) / 2);
         screen->SetClip(cx1, cy1, cx2, cy2);
-      wm->flush_screen();
+    } else {
+        draw_title_screen();
     }
+    wm->flush_screen();
     return;
   }
 
@@ -1044,8 +1302,6 @@ void Game::draw_map(view *v, int frame)
                 mark_walkable_edges(*terrain_mask, *tile->points, tile_position, tile->im->Size());
             }
 
-        if(!(dev & EDIT_MODE) && !in_between)
-            *cl|=0x8000;      // mark as has - been - seen
           }
         }
       }
@@ -1104,10 +1360,7 @@ void Game::draw_map(view *v, int frame)
               mark_walkable_edges(*terrain_mask, *tile->points, tile_position, tile->im->Size());
           }
 
-          if(!(dev & EDIT_MODE)) {
-            if (!in_between) current_level->mark_seen(x, y);
-          }
-          else
+          if (dev & EDIT_MODE)
           {
         screen->line(draw_x, draw_y, draw_x + xinc, draw_y + yinc, wm->bright_color());
         screen->line(draw_x + xinc, draw_y, draw_x, draw_y + yinc, wm->bright_color());
@@ -1226,8 +1479,15 @@ void Game::draw_map(view *v, int frame)
                                // ... not every machine will draw the same thing
 
   post_render();
-  if (state == RUN_STATE)
+  if (state == RUN_STATE) {
     draw_checkpoint_lighting(v, xoff, yoff, old_screen ? 2 : 1, frame);
+    if (!in_between && v == player_list && v->focus && v->local_player() && !(dev & (EDIT_MODE | MAP_MODE))) {
+      const vec2i top_left(v->cx1, v->cy1);
+      const auto bottom_right = old_screen ? top_left + small_render->Size() * 2 : vec2i(v->cx2 + 1, v->cy2 + 1);
+      current_level->capture_save_thumbnail(*screen, top_left, bottom_right);
+    }
+    draw_interaction_prompt(v);
+  }
 
   screen->SetClip(cx1, cy1, cx2, cy2);
 
@@ -1276,7 +1536,7 @@ void Game::request_level_load(char *name)
 
 extern int start_doubled;
 
-template<int N> static void Fade(image *im, int steps)
+template<int N> static void Fade(image *im, int steps, bool enlarge = false)
 {
     /* 25ms per step */
     float const duration = 25.f;
@@ -1285,9 +1545,13 @@ template<int N> static void Fade(image *im, int steps)
 
     if (im)
     {
+        int left, top, right, bottom;
+        screen->GetClip(left, top, right, bottom);
+        screen->SetClip(0, 0, screen->Size().x, screen->Size().y);
+        platform_end_menu_text();
         screen->clear();
-        im->put_image(screen, (xres + 1) / 2 - im->Size().x / 2,
-                              (yres + 1) / 2 - im->Size().y / 2);
+        draw_fitted_art(*im, screen->Size().y, enlarge);
+        screen->SetClip(left, top, right, bottom);
     }
 
     for (Timer total; total.PollMs() < duration * steps; )
@@ -1357,7 +1621,7 @@ void do_title()
     blank->clear();
     wm->set_mouse_shape(blank->copy(), 0, 0); // hide mouse
     delete blank;
-    fade_in(cache.img(cdc_logo), 32);
+    Fade<1>(cache.img(cdc_logo), 32, true);
     Timer tmp; tmp.WaitMs(400);
     fade_out(32);
 
@@ -1436,7 +1700,7 @@ void do_title()
     delete fp;
 
     if(title_screen >= 0)
-        fade_in(cache.img(title_screen), 32);
+        Fade<1>(cache.img(title_screen), 32, true);
 }
 
 extern int start_edit;
@@ -1495,6 +1759,14 @@ Game::Game(int argc, char **argv)
 
 //    ProfilerInit(collectDetailed, bestTimeBase, 2000, 200); //prof
     load_data(argc, argv);
+    const char *cue_sounds[] = {"SWISH", "PLAT_A_SND", "PLAT_D_SND", "ASCREAM_SND"};
+    for (size_t i = 0; i < cue_sound_ids.size(); ++i) {
+        auto *symbol = LSymbol::Find(cue_sounds[i]);
+        cue_sound_ids[i] = symbol && item_type(symbol->GetValue()) == L_NUMBER
+                          ? lnumber_value(symbol->GetValue()) : -1;
+    }
+    if (game_settings.auto_equip_pickups >= 0)
+        LSymbol::FindOrCreate("change_on_pickup")->SetValue(game_settings.auto_equip_pickups ? true_symbol : nullptr);
     if (game_settings.difficulty >= 0 && (!main_net_cfg ||
         (main_net_cfg->state != net_configuration::SERVER && main_net_cfg->state != net_configuration::CLIENT))) {
         LSymbol *levels[] = {l_easy, l_medium, l_hard, l_extreme};
@@ -1617,13 +1889,7 @@ Game::Game(int argc, char **argv)
     set_state(RUN_STATE);
   else
   {
-    screen->clear();
-    if(title_screen >= 0)
-    {
-      image *tit = cache.img(title_screen);
-      tit->put_image(screen, screen->Size().x/2 - tit->Size().x/2,
-                    screen->Size().y/2 - tit->Size().y/2);
-    }
+    draw_title_screen();
     set_state(MENU_STATE);   // then go to menu state so windows will turn off
   }
 }
@@ -1705,6 +1971,8 @@ void Game::update_screen(int frame)
     // Composite the complete HUD after the world, including interpolated frames.
     if (playing_state(state))
       sbar.draw_update();
+    for (view *player = player_list; player; player = player->next)
+      draw_gameplay_feedback(*player);
   }
 
   if(state == RUN_STATE && cache.prof_is_on())
@@ -1801,6 +2069,20 @@ void Game::get_input()
     while(event_waiting())
     {
         get_event(ev);
+        if ((ev.type == EV_KEY || ev.type == EV_KEYRELEASE) && ev.key == JK_F11) {
+            if (ev.type == EV_KEY && (!main_net_cfg || main_net_cfg->state == net_configuration::SINGLE_PLAYER)) {
+                confirm_fullscreen_change();
+                update_screen();
+            }
+            continue;
+        }
+        if (ev.type == EV_KEY && ev.key == JK_TAB && !ev.window && !pause_requested &&
+            state == RUN_STATE && !start_edit && !(dev & (EDIT_MODE | MAP_MODE)) &&
+            demo_man.current_state() == demo_manager::NORMAL && pause_map_available()) {
+            show_pause_map(*current_level, *player_list->focus);
+            update_screen();
+            continue;
+        }
         if (ev.type == EV_KEY && ev.key == JK_ESC && state == RUN_STATE && !(dev & EDIT_MODE))
             pause_requested = true;
 
@@ -2153,7 +2435,12 @@ void Game::step()
       }
       ambient_ramp = 0;
       cache.prof_poll_start();
+      if (demo_man.current_state() == demo_manager::NORMAL)
+        current_level->count_play_tick();
       current_level->tick();
+      if (player_list && !player_list->next && player_list->focus &&
+          demo_man.current_state() == demo_manager::NORMAL)
+        current_level->explore_map(*player_list->focus);
       sbar.step();
     } else
       dev_scroll();

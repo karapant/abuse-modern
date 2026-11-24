@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Runs the real engine and dialogs with SDL events; original assets are opt-in.
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -11,6 +12,7 @@
 #include <string>
 #include <thread>
 #include "common.h"
+#include "automap.h"
 #include "game.h"
 #include "view.h"
 #include "objects.h"
@@ -76,6 +78,151 @@ static void check_hud()
             "weapon bar, health and ammo share bottom-center screen anchor");
 }
 
+static void check_title_frame()
+{
+    const auto size = screen->Size();
+    int left, top, right, bottom;
+    screen->GetClip(left, top, right, bottom);
+    screen->SetClip(0, 0, size.x, size.y);
+    draw_title_screen();
+    std::vector<uint8_t> full_frame;
+    for (int y = 0; y < size.y; ++y)
+        full_frame.insert(full_frame.end(), screen->scan_line(y), screen->scan_line(y) + size.x);
+    screen->clear(211);
+    screen->SetClip(5, 5, size.x - 5, size.y - 40);
+    draw_title_screen();
+    for (int y = 0; y < size.y; ++y)
+        require(std::equal(screen->scan_line(y), screen->scan_line(y) + size.x, full_frame.data() + y * size.x),
+                "title art draws across the whole framebuffer even after gameplay clipped it");
+    screen->SetClip(left, top, right, bottom);
+}
+
+static void check_gameplay_feedback(view *v)
+{
+    const int center = (v->cx1 + v->cx2) / 2;
+    const int amber = pal->find_closest(241, 177, 73);
+    const auto count_accent = [&](int left, int top, int right, int bottom, int color) {
+        int count = 0;
+        for (int y = top; y < bottom; ++y)
+            for (int x = left; x < right; ++x)
+                count += screen->Pixel(vec2i(x, y)) == color;
+        return count;
+    };
+    const auto pickup_accent = [&] { return count_accent(center - 112, v->cy2 - 24, center + 112, v->cy2, amber); };
+    the_game->update_screen();
+    const int before_pickup = pickup_accent();
+    const int old_ammo = v->weapons[1];
+    v->weapons[1] = -1;
+    v->give_weapon(1);
+    v->add_ammo(1, 5);
+    the_game->update_screen();
+    require(v->weapons[1] == 5 && pickup_accent() > before_pickup,
+            "the real inventory grant draws a weapon and ammo notice above the HUD");
+    v->weapons[1] = old_ammo;
+
+    const int volume = sfx_volume;
+    sfx_volume = 0;
+    const int sound = lnumber_value(LSymbol::Find("SWISH")->GetValue());
+    const int sound_x = v->xoff() + center - v->cx1, sound_y = v->yoff() - 8;
+    const int blue = pal->find_closest(105, 157, 194);
+    const auto count_cue = [&] { return count_accent(center - 75, v->cy1, center + 75, v->cy1 + 24, blue); };
+    game_settings.directional_sound = 0;
+    the_game->play_sound(sound, 127, sound_x, sound_y);
+    the_game->update_screen();
+    const int before_cue = count_cue();
+    game_settings.directional_sound = 1;
+    the_game->play_sound(sound, 127, sound_x, sound_y);
+    the_game->update_screen();
+    require(count_cue() > before_cue, "an off-screen door sound draws a directional cue with audio muted");
+    sfx_volume = volume;
+}
+
+static const vec2i map_test_tile(8, 8);
+static vec2i map_test_checkpoint;
+
+static void verify_map_hover(view *v, vec2i mouse, int marker)
+{
+    wm->set_mouse_position(mouse.x, mouse.y);
+    auto *close = new event;
+    close->type = EV_KEY;
+    close->key = JK_ESC;
+    close->mouse_move = {mouse.x, mouse.y};
+    close->mouse_button = 0;
+    wm->push_event(close);
+    show_pause_map(*current_level, *v->focus);
+    bool tooltip = false;
+    for (int y = mouse.y - 9; y <= mouse.y - 4; ++y) {
+        int border_pixels = 0;
+        for (int x = mouse.x + 12; x < mouse.x + 32; ++x)
+            border_pixels += screen->Pixel(vec2i(x, y)) == marker;
+        tooltip |= border_pixels == 20;
+    }
+    require(tooltip, "hover shows a tooltip with the marker color");
+}
+
+static void check_map_discovery(view *v)
+{
+    const int tw = the_game->ftile_width(), th = the_game->ftile_height();
+    constexpr int radius = 4;
+    std::array<uint16_t, 9 * 9> original{};
+    for (int y = -radius; y <= radius; ++y)
+        for (int x = -radius; x <= radius; ++x) {
+            auto &tile = current_level->get_fgline(map_test_tile.y + y)[map_test_tile.x + x];
+            original[(y + radius) * 9 + x + radius] = tile;
+            tile = x == 1 ? 28 : 0;
+        }
+    const vec2i old_position(v->focus->x, v->focus->y);
+    v->focus->x = map_test_tile.x * tw + tw / 2;
+    v->focus->y = map_test_tile.y * th + th / 2 + 10;
+    int type = 0;
+    while (type < total_objects && strcmp(object_names[type], "RESTART_POSITION")) ++type;
+    require(type < total_objects, "stock save console exists");
+    map_test_checkpoint = vec2i(v->focus->x - 4, v->focus->y);
+    auto *checkpoint = create(type, map_test_checkpoint.x, map_test_checkpoint.y, 0);
+    current_level->add_object(checkpoint);
+    current_level->unactivate_all();
+    current_level->add_drawables(v->focus->x - 100, v->focus->y - 100, v->focus->x + 100, v->focus->y + 100);
+    current_level->explore_map(*v->focus);
+    const auto &checkpoints = current_level->map_checkpoints();
+    require(current_level->map_seen(map_test_tile.x, map_test_tile.y) &&
+            current_level->map_seen(map_test_tile.x - 2, map_test_tile.y) &&
+            !current_level->map_seen(map_test_tile.x + 2, map_test_tile.y),
+            "the pause map reveals connected nearby space and hides tiles across a wall");
+    require(std::find(checkpoints.begin(), checkpoints.end(), map_test_checkpoint) != checkpoints.end(),
+            "a reached checkpoint is recorded for the map");
+
+    type = 0;
+    while (type < total_objects && strcmp(object_names[type], "SWITCH")) ++type;
+    require(type < total_objects, "stock switch exists");
+    auto *map_switch = create(type, v->focus->x - 2 * tw, v->focus->y, 0);
+    current_level->add_object(map_switch);
+    const auto size = screen->Size();
+    const int center_y = (size.y - std::min(size.y - 16, 370)) / 2 +
+                         (std::min(size.y - 16, 370) - 7) / 2;
+    const int green = pal->find_closest(87, 163, 43), blue = pal->find_closest(111, 199, 230);
+    verify_map_hover(v, vec2i(size.x / 2 - 2, center_y), green);
+    // The switch's filled horizontal center sits halfway across its blue square.
+    vec2i switch_marker(-1, -1);
+    for (int y = center_y - 9; y <= center_y + 9; ++y)
+        for (int x = size.x / 2 - 38; x < size.x / 2 - 9; ++x)
+            if (screen->Pixel(vec2i(x - 1, y)) == blue && screen->Pixel(vec2i(x + 1, y)) == blue &&
+                screen->Pixel(vec2i(x - 2, y)) != blue && screen->Pixel(vec2i(x + 2, y)) != blue)
+                switch_marker = vec2i(x, y);
+    require(switch_marker.x >= 0, "an explored switch is marked on the map");
+    verify_map_hover(v, switch_marker, blue);
+    current_level->delete_object(map_switch);
+
+    v->focus->x = old_position.x;
+    v->focus->y = old_position.y;
+    for (int y = -radius; y <= radius; ++y)
+        for (int x = -radius; x <= radius; ++x)
+            current_level->get_fgline(map_test_tile.y + y)[map_test_tile.x + x] =
+                original[(y + radius) * 9 + x + radius];
+    current_level->mark_seen(map_test_tile.x, map_test_tile.y);
+    current_level->unactivate_all();
+    current_level->add_drawables(v->xoff(), v->yoff(), v->xoff() + xres, v->yoff() + yres);
+}
+
 static void check_hud_recovers(view *v)
 {
     int left, top, right, bottom;
@@ -110,6 +257,67 @@ static void check_hud_recovers(view *v)
                 clip_left, clip_top, clip_right, clip_bottom, screen->Size().x, top);
     require(clip_left == 0 && clip_top == 0 && clip_right == screen->Size().x && clip_bottom == top,
             "HUD redraw preserves the world clip");
+}
+
+static void check_aim_cursor()
+{
+    set_aim_cursor();
+    auto *source = cache.img(c_target);
+    auto *cursor = wm->eh->mouse_sprite()->visual;
+    require(cursor->Size() == source->Size() + vec2i(2, 2), "the aiming cursor includes a one-pixel outline");
+    bool outlined = false;
+    for (int y = 0; y < source->Size().y; ++y) {
+        for (int x = 0; x < source->Size().x; ++x) {
+            const auto pixel = source->Pixel(vec2i(x, y));
+            const auto drawn = cursor->Pixel(vec2i(x + 1, y + 1));
+            if (pixel) require(drawn == pixel, "the outline preserves the original aiming mark");
+            else if (drawn) outlined = true;
+        }
+    }
+    require(outlined, "transparent pixels beside the aiming mark receive a dark outline");
+}
+
+static void snapshot(const char *name);
+
+static void check_interaction_prompt(view *v)
+{
+    int type = 0;
+    while (type < total_objects && strcmp(object_names[type], "SWITCH_ONCE")) ++type;
+    require(type < total_objects, "stock one-use switch exists");
+    auto *object = create(type, v->focus->x, v->focus->y, 0);
+    current_level->add_object(object);
+    current_level->unactivate_all();
+    current_level->add_drawables(v->xoff(), v->yoff(), v->xoff() + xres, v->yoff() + yres);
+    const auto pixels = [&] {
+        the_game->draw(0);
+        std::vector<uint8_t> result;
+        for (int y = v->cy2 - 24; y < v->cy2; ++y) {
+            const auto *row = screen->scan_line(y);
+            result.insert(result.end(), row + xres / 2 - 72, row + xres / 2 + 72);
+        }
+        return result;
+    };
+    object->set_aistate(1);
+    const auto used = pixels();
+    object->set_aistate(0);
+    controller_keyboard_used();
+    const auto ready = pixels();
+    if (wide_view) snapshot("interaction-prompt.bmp");
+    const int binding = control_binding(ControlAction::Use);
+    control_binding(ControlAction::Use) = 't';
+    const auto rebound = pixels();
+    control_binding(ControlAction::Use) = binding;
+    require(used != ready && ready != rebound, "a usable switch shows the current Use binding");
+    SDL_Event press{};
+    press.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+    press.gbutton.which = virtual_id;
+    press.gbutton.button = SDL_GAMEPAD_BUTTON_EAST;
+    controller_event(press);
+    require(controller_use_hint() && pixels() != ready, "controller input shows the gamepad Use button");
+    controller_keyboard_used();
+    object->set_aistate(1);
+    require(pixels() == used, "used one-shot switches no longer show an action prompt");
+    current_level->delete_object(object);
 }
 static void check_explosion_effect()
 {
@@ -374,9 +582,9 @@ extern "C" void __wrap__ZN4Game9show_helpEPKc(Game *game, const char *text)
     __real__ZN4Game9show_helpEPKc(game, text);
 }
 
-static void invoke_save(const char *expression)
+static LObject *eval_lisp(const char *expression)
 {
-    LObject::Compile(expression)->Eval();
+    return LObject::Compile(expression)->Eval();
 }
 
 static void check_checkpoint_lighting(view *v)
@@ -428,6 +636,8 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
     const auto trace = std::to_string(phase) + " " + section + " " + std::to_string(menu->selected);
     if (last_trace != trace) { fprintf(stderr, "Engine integration: %s\n", trace.c_str()); last_trace = trace; }
     const std::string page(section);
+    static bool display_revert_seen = false;
+    static int display_kept_phase = -1;
     if (one_stick) {
         if (page == "GAMEPAD WARNING") {
             require(controller_requires_two_sticks(), "unsupported controller produces a visible warning");
@@ -460,6 +670,21 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         require(settings_load((root / "settings.cfg").string(), saved) && saved.difficulty == 3 && l_difficulty->GetValue() == l_extreme,
                 "difficulty menu updates live game and saved preference");
         if (selected(menu, "Window scale")) { enter(); phase = 52; } else choose(menu, "Window scale");
+    } else if ((phase == 52 || phase == 53 || phase == 54 || phase == 62) && page == "KEEP DISPLAY?") {
+        if (display_kept_phase == phase) return;
+        display_kept_phase = phase;
+        GameSettings saved;
+        require(settings_load((root / "settings.cfg").string(), saved), "read the confirmed display settings");
+        if (phase == 52)
+            require(saved.scale == 3, "window scale preview is not saved before confirmation");
+        else
+            require(xres != view_width(saved.view_resolution) || yres != view_height(saved.view_resolution),
+                    "view resolution applies before being persisted");
+        SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP);
+        enter();
+    } else if (phase == 56 && page == "KEEP DISPLAY?") {
+        if (!display_revert_seen && !wide_view) escape();
+        display_revert_seen = true;
     } else if (phase == 52 && page == "SETTINGS") {
         GameSettings saved;
         if (game_settings.scale != 4) return;
@@ -481,6 +706,16 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
     } else if (phase == 54 && page == "SETTINGS") {
         if (game_settings.view_resolution != (wide_view ? 3 : 0)) return;
         require(xres == (wide_view ? 640 : 320) && yres == (wide_view ? 360 : 200), "live resolution can return to previous view");
+        SDL_FlushEvent(SDL_EVENT_MOUSE_MOTION);
+        if (!selected(menu, "View resolution")) { choose(menu, "View resolution"); return; }
+        key(SDLK_RIGHT, SDL_SCANCODE_RIGHT);
+        phase = 56;
+    } else if (phase == 56 && page == "SETTINGS" && display_revert_seen) {
+        const int expected = wide_view ? 3 : 0;
+        GameSettings saved;
+        require(xres == view_width(expected) && yres == view_height(expected) &&
+                settings_load((root / "settings.cfg").string(), saved) && saved.view_resolution == expected,
+                "an unconfirmed display change restores the framebuffer and leaves saved settings intact");
         phase = 1; choose(menu, "Key bindings");
     } else if (phase == 1 && page == "SETTINGS") {
         if (selected(menu, "Key bindings")) { enter(); phase = 2; } else choose(menu, "Key bindings");
@@ -564,6 +799,27 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         snapshot("load.bmp");
         require(menu->items.size() == 16, "load dialog includes all fifteen slots and Back");
         if (selected(menu, "Slot 15")) { enter(); phase = 17; } else choose(menu, "Slot 15");
+    } else if (phase == 71 && page == "PAUSED") {
+        if (selected(menu, "Map")) {
+            enter();
+            key(SDLK_EQUALS, SDL_SCANCODE_EQUALS);
+            escape();
+            phase = 76;
+        } else choose(menu, "Map");
+    } else if (phase == 76 && page == "PAUSED") {
+        require(player_list->focus->hp() == 23, "the pause map returns to the same run");
+        if (selected(menu, "Restart checkpoint")) { enter(); phase = 72; }
+        else choose(menu, "Restart checkpoint");
+    } else if (phase == 72 && page == "RESTART?") {
+        if (selected(menu, "Cancel")) { enter(); phase = 74; }
+        else choose(menu, "Cancel");
+    } else if (phase == 74 && page == "PAUSED") {
+        require(player_list->focus->hp() == 23, "cancel keeps the current run");
+        if (selected(menu, "Restart checkpoint")) { enter(); phase = 75; }
+        else choose(menu, "Restart checkpoint");
+    } else if (phase == 75 && page == "RESTART?") {
+        if (selected(menu, "Restart checkpoint")) { enter(); phase = 73; }
+        else choose(menu, "Restart checkpoint");
     } else if ((phase == 21 || phase == 23) && page == "SAVE GAME") {
         if (selected(menu, "Slot 15")) { enter(); phase = phase == 21 ? 22 : 24; }
         else choose(menu, "Slot 15");
@@ -822,7 +1078,12 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
             require(abs(mx - xres / 2) <= 1 && abs(my - yres / 2) <= 1, "widescreen aiming maps to view center");
         }
         check_hud();
+        check_title_frame();
         check_hud_recovers(v);
+        check_aim_cursor();
+        check_interaction_prompt(v);
+        check_map_discovery(v);
+        check_gameplay_feedback(v);
         if (wide_view) {
             std::vector<int> ammo;
             for (int i = 0; i < total_weapons; ++i) { ammo.push_back(v->weapons[i]); v->weapons[i] = 100 + i; }
@@ -850,15 +1111,37 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         SDL_UpdateJoysticks();
         v->focus->set_hp(73);
         check_checkpoint_lighting(v);
-        invoke_save("(save_game \"save0015.spe\")");
+        current_level->set_time_played_ticks(15 * 70);
+        eval_lisp("(save_game \"save0015.spe\")");
         require(save_notices == 1, "the checkpoint save command confirms a successful write");
-        invoke_save("(save_game \"missing/checkpoint.spe\")");
+        eval_lisp("(save_game \"missing/checkpoint.spe\")");
         require(save_notices == 1, "a save that cannot open its destination gives no success message");
-        require(scan_save_slots(root.string()).at(14).state == SaveSlotState::Saved, "real save recognized by text slot picker");
+        const auto saved = scan_save_slots(root.string()).at(14);
+        require(saved.state == SaveSlotState::Saved && !saved.level.empty() && !saved.saved_at.empty() &&
+                saved.width == 160 && saved.height == 100 && saved.preview.size() == 16000 &&
+                saved.difficulty == 3 && saved.play_ticks == 15 * 70 && last_checkpoint_slot() == 15,
+                "a real save supplies level, date, screenshot, difficulty and play time");
+        auto *saved_object = current_object;
+        auto *station = current_level->first_object();
+        while (station && strcmp(object_names[station->otype], "RESTART_POSITION")) station = station->next;
+        require(station, "checkpoint station needed for the metadata test");
+        const auto station_id = station->xvel();
+        station->set_xvel(7);
+        current_object = station;
         phase = 21;
-        require(load_game(1, "SAVE") == 15 && phase == 27, "checkpoint slot picker cancels then confirms overwrite of slot 15");
+        require(lnumber_value(eval_lisp("(get_save_slot)")) == 15 && phase == 27,
+                "the Lisp checkpoint picker cancels then confirms overwrite of slot 15");
+        current_object = saved_object;
+        station->set_xvel(station_id);
+        // A modal screen can still be displayed when Lisp writes the save.
+        screen->clear(211);
+        eval_lisp("(save_game \"save0015.spe\")");
+        const auto overwritten = scan_save_slots(root.string()).at(14);
+        require(overwritten.preview == saved.preview && overwritten.station == 7,
+                "checkpoint overwrite retains the gameplay frame and records the chosen station");
         phase = 25;
-        require(load_game(1, "SAVE") == 0 && phase == 26, "escape cancels checkpoint slot picker");
+        require(lnumber_value(eval_lisp("(get_save_slot)")) == 0 && phase == 26,
+                "escape cancels the Lisp checkpoint picker");
         v->focus->set_hp(17);
         phase = 60;
         SDL_Event start = {}; start.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
@@ -869,12 +1152,30 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         require(!game_settings.modern_hud && !game_settings.enhanced_lighting, "classic modes stay active after loading");
         the_game->draw(0);
         require(v->focus->hp() == 73, "load dialog restores saved player health");
+        require(current_level->time_played_ticks() >= 15 * 70, "load dialog restores campaign play time");
         require(v->cx2 < xres && v->cy2 < yres, "save loading adapts camera to current live resolution");
         check_hud();
         check_hud_recovers(v);
-        invoke_save("(save_game \"silent-checkpoint.spe\")");
-        require(std::filesystem::exists(root / "silent-checkpoint.spe") && save_notices == 1,
+        eval_lisp("(save_game \"silent-checkpoint.spe\")");
+        require(std::filesystem::exists(root / "silent-checkpoint.spe") && save_notices == 2,
                 "switching checkpoint feedback off suppresses the notice without preventing saving");
+        v->focus->set_hp(23);
+        phase = 71; escape();
+    } else if (phase == 73) {
+        require(v->focus->hp() == 73 && last_checkpoint_slot() == 15,
+                "pause-menu restart restores the last checkpoint");
+        const auto &checkpoints = current_level->map_checkpoints();
+        require(current_level->map_seen(map_test_tile.x, map_test_tile.y) &&
+                std::find(checkpoints.begin(), checkpoints.end(), map_test_checkpoint) != checkpoints.end(),
+                "checkpoint restart restores explored tiles and reached checkpoint markers");
+        key(SDLK_TAB, SDL_SCANCODE_TAB);
+        escape();
+        the_game->get_input();
+        require(the_game->state == RUN_STATE, "Tab opens the map and Escape returns directly to gameplay");
+        key(SDLK_TAB, SDL_SCANCODE_TAB);
+        key(SDLK_TAB, SDL_SCANCODE_TAB);
+        the_game->get_input();
+        require(the_game->state == RUN_STATE && v->focus->hp() == 73, "Tab also closes the map");
         phase = 18; escape();
     }
 }

@@ -82,6 +82,7 @@ static int game_key(const SDL_KeyboardEvent &key)
     case SDLK_F8: return JK_F8;
     case SDLK_F9: return JK_F9;
     case SDLK_F10: return JK_F10;
+    case SDLK_F11: return JK_F11;
     default: break;
     }
     int value = int(key.key);
@@ -207,12 +208,6 @@ void event_handler::get_event(event &ev)
     case SDL_EVENT_KEY_UP: {
         const bool down = input.type == SDL_EVENT_KEY_DOWN;
         if (input.key.repeat) break;
-        if (input.key.key == SDLK_F11) {
-            if (down && !platform_set_fullscreen(
-                    !(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN)) && the_game)
-                the_game->show_help("Could not save fullscreen preference.");
-            break;
-        }
         if (input.key.key == SDLK_F12) {
             if (down) SDL_SetWindowMouseGrab(platform_window(), !SDL_GetWindowMouseGrab(platform_window()));
             break;
@@ -226,6 +221,7 @@ void event_handler::get_event(event &ev)
         if (scancode >= pressed.size()) break;
         ev.key = down ? game_key(input.key) : pressed[scancode];
         pressed[scancode] = down ? ev.key : 0;
+        if (down && ev.key && !controller_in_menu()) controller_keyboard_used();
         if (ev.key) ev.type = down ? EV_KEY : EV_KEYRELEASE;
         break;
     }

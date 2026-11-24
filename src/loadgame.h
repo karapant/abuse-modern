@@ -17,5 +17,9 @@ void get_savegame_name(char *buf);  // buf should be at least 50 bytes
 void last_savegame_name(char *buf);
 void load_number_icons();
 int get_save_spot();
+int last_checkpoint_slot();
+void reset_checkpoint_slot();
+void record_checkpoint_save(const char *filename);
+bool load_checkpoint_slot(int slot);
 
 #endif

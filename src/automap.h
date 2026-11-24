@@ -29,6 +29,8 @@ public :
 } ;
 
 extern automap *current_automap;
+bool pause_map_available();
+void show_pause_map(level &map, game_object &player);
 
 #endif
 

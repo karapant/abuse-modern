@@ -25,22 +25,29 @@ static void pump()
     SDL_Event event;
     while (SDL_PollEvent(&event)) controller_event(event);
 }
-static void write_fixture(const std::filesystem::path &path, bool valid)
+static void write_fixture(const std::filesystem::path &path, bool valid, bool menu_preview = false)
 {
     const std::vector<std::string> names = {"fgmap", "bgmap", "object_list", "player_info", "thumb nail"};
     unsigned offset = 10;
     for (const auto &name : names) offset += 2 + name.size() + 1 + 9;
     std::ofstream file(path, std::ios::binary);
+    const int width = menu_preview ? 160 : 2, height = menu_preview ? 100 : 2;
     const auto number = [&](unsigned value, int bytes) { for (int i = 0; i < bytes; ++i) file.put((value >> (8 * i)) & 255); };
     file.write("SPEC1.0\0", 8); number(names.size(), 2);
     for (const auto &name : names) {
         file.put(name == "thumb nail" ? 4 : 20); file.put(name.size() + 1);
         file.write(name.c_str(), name.size() + 1); file.put(0);
-        unsigned size = name == "thumb nail" ? 8 : 4;
+        unsigned size = name == "thumb nail" ? 4 + width * height : 4;
         number(size, 4); number(valid ? offset : 999999, 4); offset += size;
     }
     for (int i = 0; i < 4; ++i) number(0, 4);
-    number(2, 2); number(2, 2); number(0, 4);
+    number(width, 2); number(height, 2);
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x) {
+            // Centered 288x192 picker and its three-pixel stripe at half scale.
+            const bool panel = menu_preview && y >= 2 && y < 98 && x >= 8 && x < 152;
+            file.put(panel ? (x < 10 ? 13 : 61) : 5);
+        }
 }
 int main()
 {
@@ -74,9 +81,12 @@ int main()
     require(slots.size() == 15 && slots[14].number == 15 && slots[14].state == SaveSlotState::Empty, "all fifteen empty slots are enumerated");
     write_fixture(root / "save0015.spe", true);
     write_fixture(root / "save0002.spe", false);
+    write_fixture(root / "save0004.spe", true, true);
     std::ofstream(root / "save0003.spe") << "not a save";
     slots = scan_save_slots(root.string());
     require(slots[14].state == SaveSlotState::Saved, "last save slot remains addressable");
+    require(slots[3].state == SaveSlotState::Saved && slots[3].preview.empty() && !slots[14].preview.empty(),
+            "hide legacy menu thumbnails while preserving gameplay previews and loadable slots");
     require(slots[1].state == SaveSlotState::Unreadable && slots[2].state == SaveSlotState::Unreadable,
             "truncated and out-of-bounds saves are rejected");
     require(save_slot_filename(15) == "save0015.spe" && save_slot_filename(16).empty(), "slot filenames are bounded");

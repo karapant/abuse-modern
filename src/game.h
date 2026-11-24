@@ -26,6 +26,7 @@
 #include "view.h"
 #include "id.h"
 #include "motion.h"
+#include <array>
 
 #define MAPFW                100
 #define MAPFH                100
@@ -45,6 +46,9 @@
 
 /* Cleaned-up externs */
 extern WindowManager *wm;
+void set_aim_cursor();
+void set_aim_cursor_hotspot(int x, int y);
+void draw_title_screen();
 
 
 #define tile_type unsigned short
@@ -76,6 +80,19 @@ private:
   int has_joystick,no_delay;
   bool between_ticks = false;
   float last_render_ms = 0;
+  struct PickupNotice {
+    int weapon = -1, ammo = 0;
+    bool acquired = false;
+    uint64_t expires = 0;
+  };
+  struct SoundCue {
+    vec2i position{0, 0};
+    uint64_t expires = 0;
+  };
+  std::array<PickupNotice, 2> pickup_notices{};
+  std::array<SoundCue, 3> sound_cues{};
+  std::array<int, 4> cue_sound_ids{};
+  void draw_gameplay_feedback(view &v);
 
 
   Jwindow *top_menu,*joy_win,*last_input;
@@ -96,6 +113,7 @@ public :
 
   void step();
   void show_help(char const *st);
+  void note_weapon_pickup(view &v, int weapon, int ammo, bool acquired);
   void draw_value(image *screen, int x, int y, int w, int h, int val, int max);
   unsigned char get_color(int x) { return x; }
   int done();
@@ -110,7 +128,7 @@ public :
 
   void ftile_on(int screenx, int screeny, int32_t &x, int32_t &y);
   void btile_on(int screenx, int screeny, int32_t &x, int32_t &y);
-  bool set_view_resolution(int preset);
+  bool set_view_resolution(int preset, bool persist = true);
   void toggle_delay();
   void set_delay(int on) { no_delay=!on; }
   void pan(int xv, int yv);
@@ -136,7 +154,7 @@ public :
 
 
   int in_area(event &ev, int x1, int y1, int x2, int y2);
-  void load_level(char const *name);
+  void load_level(char const *name, bool new_game = false);
   void set_level(level *nl);
   void show_time();
   tile_type get_map_bg(int x, int y) { return current_level->get_bg(x,y); }

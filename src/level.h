@@ -18,6 +18,8 @@
 #include "id.h"
 
 #include <stdlib.h>
+#include <array>
+#include <vector>
 #define ASPECT 4             // foreground scrolls 4 times faster than background
 
 
@@ -73,11 +75,22 @@ class level        // contain map info and objects
   int all_block_list_size,all_block_total;
   void add_all_block(game_object *who);
   uint32_t ctick;
+  std::vector<vec2i> reached_checkpoints;
+  vec2i last_map_position{-1, -1};
+  uint32_t play_ticks = 0;
+  int checkpoint_save_station = -1;
+  static constexpr int thumbnail_width = 160, thumbnail_height = 100;
+  std::array<uint8_t, thumbnail_width * thumbnail_height> save_thumbnail{};
+  void write_thumb_nail(bFILE *fp);
 
 public :
   char *original_name() { if (first_name) return first_name; else return Name; }
   uint32_t tick_counter() { return ctick; }
   void set_tick_counter(uint32_t x);
+  uint32_t time_played_ticks() const { return play_ticks; }
+  void set_time_played_ticks(uint32_t ticks) { play_ticks = ticks; }
+  void count_play_tick() { if (play_ticks < UINT32_MAX) ++play_ticks; }
+  void set_checkpoint_save_station(int station) { checkpoint_save_station = station; }
   area_controller *area_list;
 
   void clear_active_list() { first_active=NULL; }
@@ -112,6 +125,13 @@ public :
                       }
   void mark_seen(int x, int y) { CHECK(x>=0 && y>=0 && x<fg_width && y<fg_height);
                       (*(map_fg+x+y*fg_width))|=0x8000; }
+  bool map_seen(int x, int y) const
+  {
+      return map_fg && x >= 0 && y >= 0 && x < fg_width && y < fg_height &&
+          (map_fg[x + y * fg_width] & 0x8000);
+  }
+  void explore_map(game_object &player);
+  const std::vector<vec2i> &map_checkpoints() const { return reached_checkpoints; }
   void clear_fg(int32_t x, int32_t y) { *(map_fg+x+y*fg_width)&=0x7fff; }
 
   uint16_t *get_fgline(int y) { CHECK(y>=0 && y<fg_height); return map_fg+y*fg_width; }
@@ -142,7 +162,7 @@ public :
   void load_options(spec_directory *sd, bFILE *fp);
   void write_objects(bFILE *fp, object_node *save_list);
   void write_options(bFILE *fp);
-  void write_thumb_nail(bFILE *fp, image *im);
+  void capture_save_thumbnail(image &source, vec2i top_left, vec2i bottom_right);
   void write_cache_prof_info();
   void restart();
 

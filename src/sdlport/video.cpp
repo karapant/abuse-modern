@@ -38,10 +38,17 @@ extern flags_struct flags;
 static SDL_Window *window = nullptr;
 static SDL_Renderer *renderer = nullptr;
 static SDL_Texture *texture = nullptr;
+static SDL_Texture *menu_texture = nullptr;
 static std::vector<Uint8> indexed;
 static std::vector<Uint32> rgba;
 static std::vector<Uint32> scaled_rgba;
 static Uint32 colors[256] = {};
+struct MenuGlyph {
+    int x, y, width, height;
+    const Uint8 *mask;
+    Uint8 color;
+};
+static std::vector<MenuGlyph> menu_text;
 
 static void video_error()
 {
@@ -65,6 +72,21 @@ static SDL_Texture *create_frame_texture(int width, int height, bool smooth)
     return frame;
 }
 
+bool platform_begin_menu_text()
+{
+    menu_text.clear();
+    if (game_settings.smooth_pixels) return true;
+    if (!menu_texture) menu_texture = create_frame_texture(xres, yres, true);
+    return menu_texture != nullptr;
+}
+
+void platform_end_menu_text() { menu_text.clear(); }
+
+void platform_menu_glyph(int x, int y, int width, int height, const Uint8 *mask, Uint8 color)
+{
+    if (width && height) menu_text.push_back({x, y, width, height, mask, color});
+}
+
 bool platform_set_smooth_pixels(bool enabled)
 {
     if (!renderer) return SDL_SetError("The renderer is unavailable");
@@ -80,11 +102,11 @@ bool platform_set_smooth_pixels(bool enabled)
     return true;
 }
 
-bool platform_set_fullscreen(bool enabled)
+bool platform_set_fullscreen(bool enabled, bool persist)
 {
     const bool previous = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
     if (!SDL_SetWindowFullscreen(window, enabled)) return false;
-    if (!save_setting(Setting::Fullscreen, enabled)) {
+    if (persist && !save_setting(Setting::Fullscreen, enabled)) {
         SDL_SetWindowFullscreen(window, previous);
         SDL_SetError("Cannot save fullscreen preference; previous value restored");
         return false;
@@ -93,7 +115,7 @@ bool platform_set_fullscreen(bool enabled)
     return true;
 }
 
-bool platform_set_view_resolution(int preset)
+bool platform_set_view_resolution(int preset, bool persist)
 {
     if (preset < 0 || preset > 3 || !screen || !renderer) return false;
     const int width = view_width(preset), height = view_height(preset);
@@ -102,7 +124,7 @@ bool platform_set_view_resolution(int preset)
     if (!SDL_SetRenderLogicalPresentation(renderer, width, height, SDL_LOGICAL_PRESENTATION_LETTERBOX)) {
         SDL_DestroyTexture(next); return false;
     }
-    if (!save_setting(Setting::ViewResolution, preset)) {
+    if (persist && !save_setting(Setting::ViewResolution, preset)) {
         SDL_SetRenderLogicalPresentation(renderer, xres, yres, SDL_LOGICAL_PRESENTATION_LETTERBOX);
         SDL_DestroyTexture(next); return false;
     }
@@ -115,6 +137,8 @@ bool platform_set_view_resolution(int preset)
     indexed.assign(size_t(width) * height, 0);
     rgba.assign(indexed.size(), colors[0]);
     scaled_rgba.clear();
+    menu_text.clear();
+    SDL_DestroyTexture(menu_texture); menu_texture = nullptr;
     SDL_DestroyTexture(texture); texture = next;
     screen->AddDirty(0, 0, width, height);
     return true;
@@ -163,10 +187,12 @@ void close_graphics()
     delete lastl; lastl = nullptr;
     delete screen; screen = nullptr;
     SDL_DestroyTexture(texture); texture = nullptr;
+    SDL_DestroyTexture(menu_texture); menu_texture = nullptr;
     SDL_DestroyRenderer(renderer); renderer = nullptr;
     SDL_DestroyWindow(window); window = nullptr;
     indexed.clear(); rgba.clear();
     scaled_rgba.clear();
+    menu_text.clear();
 }
 
 // Source bounds are exclusive. Dirty rectangles and put_image share this contract.
@@ -193,7 +219,7 @@ static Uint32 interpolate_subpixel(Uint32 center, Uint32 horizontal, Uint32 vert
     return (((rb + round) >> 2) & channels) | ((((ag + round) >> 2) & channels) << 8);
 }
 
-static void scale_frame_2x()
+static void scale_frame_2x(bool smooth)
 {
     scaled_rgba.resize(rgba.size() * 4);
     const size_t stride = size_t(xres) * 2;
@@ -203,6 +229,11 @@ static void scale_frame_2x()
         const Uint32 *below = y + 1 < yres ? row + xres : row;
         Uint32 *top = scaled_rgba.data() + size_t(y) * 2 * stride;
         Uint32 *bottom = top + stride;
+        if (!smooth) {
+            for (int x = 0; x < xres; ++x)
+                top[2 * x] = top[2 * x + 1] = bottom[2 * x] = bottom[2 * x + 1] = row[x];
+            continue;
+        }
         for (int x = 0; x < xres; ++x) {
             const Uint32 center = row[x];
             const Uint32 north = above[x], south = below[x];
@@ -218,19 +249,47 @@ static void scale_frame_2x()
     }
 }
 
+static void blend_menu_text()
+{
+    const int stride = xres * 2;
+    for (const auto &glyph : menu_text) {
+        const Uint32 ink = colors[glyph.color];
+        for (int y = std::max(0, -glyph.y); y < std::min(glyph.height, yres * 2 - glyph.y); ++y) {
+            auto *row = scaled_rgba.data() + size_t(glyph.y + y) * stride;
+            for (int x = std::max(0, -glyph.x); x < std::min(glyph.width, stride - glyph.x); ++x) {
+                const int pixel = y * glyph.width + x;
+                const Uint8 packed = glyph.mask[pixel / 2];
+                const int alpha = pixel % 2 ? packed & 15 : packed >> 4;
+                if (!alpha) continue;
+                auto &background = row[glyph.x + x];
+                Uint32 blend = 0xff000000;
+                for (int shift : {0, 8, 16}) {
+                    const int a = (ink >> shift) & 255;
+                    const int b = (background >> shift) & 255;
+                    blend |= Uint32((a * alpha + b * (15 - alpha) + 7) / 15) << shift;
+                }
+                background = blend;
+            }
+        }
+    }
+}
+
 void update_window_done()
 {
     if (!texture) return;
     // Convert the entire retained framebuffer so palette fades affect unchanged pixels.
     for (size_t i = 0; i < indexed.size(); ++i) rgba[i] = colors[indexed[i]];
-    if (game_settings.smooth_pixels) scale_frame_2x();
+    const bool menu = !menu_text.empty() && (game_settings.smooth_pixels || menu_texture);
+    if (game_settings.smooth_pixels || menu) scale_frame_2x(game_settings.smooth_pixels);
     else scaled_rgba.clear();
-    const bool smooth = !scaled_rgba.empty();
-    const auto &frame = smooth ? scaled_rgba : rgba;
-    const int stride = xres * (smooth ? 2 : 1);
-    if (!SDL_UpdateTexture(texture, nullptr, frame.data(), stride * sizeof(Uint32))) video_error();
+    if (menu) blend_menu_text();
+    const bool doubled = !scaled_rgba.empty();
+    const auto &frame = doubled ? scaled_rgba : rgba;
+    const int stride = xres * (doubled ? 2 : 1);
+    auto *output = menu && !game_settings.smooth_pixels ? menu_texture : texture;
+    if (!SDL_UpdateTexture(output, nullptr, frame.data(), stride * sizeof(Uint32))) video_error();
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    if (!SDL_RenderClear(renderer) || !SDL_RenderTexture(renderer, texture, nullptr, nullptr)
+    if (!SDL_RenderClear(renderer) || !SDL_RenderTexture(renderer, output, nullptr, nullptr)
         || !SDL_RenderPresent(renderer)) video_error();
 }
 

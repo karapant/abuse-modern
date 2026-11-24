@@ -1893,8 +1893,11 @@ long c_caller(long number, void *args)
     case 223 :
     {
       char *fn=lstring_value(CAR(args));
-      if (current_level->save(fn, 1) && game_settings.checkpoint_feedback)
-        the_game->show_help("Game saved");
+      if (current_level->save(fn, 1)) {
+        record_checkpoint_save(fn);
+        if (game_settings.checkpoint_feedback)
+          the_game->show_help("Game saved");
+      }
     } break;
     case 224 :
     {
@@ -2140,7 +2143,11 @@ long c_caller(long number, void *args)
     case 263 :
     {
       the_game->reset_keymap();
-      return load_game(1,symbol_str("SAVE")); //get_save_spot(); shit
+      const int station = current_object && !strcmp(object_names[current_object->otype], "RESTART_POSITION")
+                          ? current_object->xvel() : -1;
+      const int slot = get_save_spot();
+      if (current_level) current_level->set_checkpoint_save_station(slot ? station : -1);
+      return slot;
     } break;
     case 264 :
     {
@@ -2192,8 +2199,7 @@ long c_caller(long number, void *args)
       int x=lnumber_value(CAR(args));  args=CDR(args);
       int y=lnumber_value(CAR(args));
       c_target=id;
-      if (screen)
-        wm->set_mouse_shape(cache.img(c_target)->copy(),x,y);
+      set_aim_cursor_hotspot(x, y);
     } break;
     case 276 :
     {

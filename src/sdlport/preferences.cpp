@@ -9,7 +9,7 @@
 GameSettings game_settings, saved_settings;
 namespace {
 struct Field { const char *name; int GameSettings::*member; int low, high; };
-const std::array<Field, 12> fields = {{
+const std::array<Field, 14> fields = {{
     {"sfx_volume", &GameSettings::sfx_volume, 0, 127},
     {"music_volume", &GameSettings::music_volume, 0, 127},
     {"difficulty", &GameSettings::difficulty, -1, 3},
@@ -21,7 +21,9 @@ const std::array<Field, 12> fields = {{
     {"enhanced_lighting", &GameSettings::enhanced_lighting, 0, 1},
     {"checkpoint_feedback", &GameSettings::checkpoint_feedback, 0, 1},
     {"smooth_pixels", &GameSettings::smooth_pixels, 0, 1},
-    {"enhanced_projectiles", &GameSettings::enhanced_projectiles, 0, 1}}};
+    {"enhanced_projectiles", &GameSettings::enhanced_projectiles, 0, 1},
+    {"auto_equip_pickups", &GameSettings::auto_equip_pickups, -1, 1},
+    {"directional_sound", &GameSettings::directional_sound, 0, 1}}};
 bool integer(const std::string &text, int &value)
 {
     std::istringstream input(text);

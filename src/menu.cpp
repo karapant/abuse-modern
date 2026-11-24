@@ -25,6 +25,7 @@
 #include "sdlport/preferences.h"
 
 #include "common.h"
+#include "automap.h"
 
 #include "dev.h"
 
@@ -456,7 +457,8 @@ void menu_handler(event &ev, InputManager *inm)
     case ID_START_GAME :
     if (!volume_window)
     {
-      the_game->load_level(level_file);
+      reset_checkpoint_slot();
+      the_game->load_level(level_file, true);
       the_game->set_state(RUN_STATE);
       view *v;
       for (v=player_list; v; v=v->next)
@@ -471,14 +473,8 @@ void menu_handler(event &ev, InputManager *inm)
     {
       int got_level=load_game(0,symbol_str("LOAD"));
       the_game->reset_keymap();
-      if (got_level)
-      {
-        char name[255];
-        sprintf(name,"%ssave%04d.spe", get_save_filename_prefix(), got_level);
-
-        the_game->load_level(name);
-        the_game->set_state(RUN_STATE);
-      }
+      if (got_level && !load_checkpoint_slot(got_level))
+        text_notice("LOAD FAILED", "This save is no longer readable.");
     } break;
 
 
@@ -526,13 +522,7 @@ void menu_handler(event &ev, InputManager *inm)
     if (!volume_window)
     {
       show_sell(1);
-      screen->clear();
-      if (title_screen>=0)
-      {
-        image *tit=cache.img(title_screen);
-          tit->put_image(screen,screen->Size().x/2-tit->Size().x/2,
-                          screen->Size().y/2-tit->Size().y/2);
-      }
+      draw_title_screen();
       inm->redraw();
       fade_in(NULL,8);
       wm->flush_screen();
@@ -665,19 +655,69 @@ ico_button *make_conditional_buttons(int x,int &y)
   return start_list;
 }
 
-TextMenuAction run_text_menu(TextMenu &menu, const char *section, const char *hint)
+struct MenuTextScope {
+    ~MenuTextScope() { platform_end_menu_text(); }
+};
+
+static TextMenuAction run_menu(TextMenu &menu, const char *section, const char *hint, uint64_t deadline)
 {
     ControllerMenuScope controller_menu;
+    MenuTextScope menu_text;
     for (;;) {
-        if (controller_take_warning())
+        if (!deadline && controller_take_warning())
             text_notice("GAMEPAD WARNING", "This controller does not report two sticks. Controller gameplay is disabled because movement and aiming need separate sticks. Use keyboard and mouse, or connect a dual-stick controller. Menu navigation still works.");
-        menu.draw(*screen, *big_font, *pal, "ABUSE MODERN", section, hint);
+        const auto now = SDL_GetTicks();
+        if (deadline && now >= deadline) return {-1};
+        const auto remaining = deadline ? (deadline - now + 999) / 1000 : 0;
+        const std::string countdown = deadline ? "Reverting in " + std::to_string(remaining) + " s   Esc reverts now" : "";
+        menu.draw(*screen, *big_font, *pal, "ABUSE MODERN", section, deadline ? countdown.c_str() : hint);
         wm->flush_screen();
+        if (deadline) {
+            const auto next_update = deadline - (remaining - 1) * 1000;
+            while (!wm->event_waiting() && SDL_GetTicks() < next_update) SDL_Delay(10);
+            if (SDL_GetTicks() >= next_update) continue;
+        }
         event ev;
         wm->get_event(ev);
+        if (ev.type == EV_KEY && ev.key == JK_F11) {
+            if (!deadline) confirm_fullscreen_change();
+            continue;
+        }
         TextMenuAction action = menu.handle(ev);
         if (action.id) return action;
     }
+}
+
+TextMenuAction run_text_menu(TextMenu &menu, const char *section, const char *hint)
+{
+    return run_menu(menu, section, hint, 0);
+}
+
+template<class Apply, class Restore>
+static void preview_display(Setting setting, int value, Apply apply, Restore restore)
+{
+    if (!apply()) {
+        text_notice("DISPLAY ERROR", "Could not preview the display change.");
+        return;
+    }
+    TextMenu menu;
+    menu.items = {{1, "Keep changes", ""}, {2, "Revert", ""}};
+    const auto result = run_menu(menu, "KEEP DISPLAY?", "", SDL_GetTicks() + 12000);
+    const bool keep = result.id == 1;
+    if (keep && save_setting(setting, value)) return;
+    if (!restore())
+        text_notice("DISPLAY ERROR", "Could not restore the previous display. Restart to use the saved settings.");
+    else if (keep)
+        text_notice("SAVE FAILED", "Could not save the display setting. Previous display restored.");
+}
+
+void confirm_fullscreen_change()
+{
+    const bool fullscreen = (SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN) != 0;
+    preview_display(Setting::Fullscreen, !fullscreen,
+                    [&] { return platform_set_fullscreen(!fullscreen, false); },
+                    [&] { return platform_set_fullscreen(fullscreen, false); });
+    the_game->reset_keymap();
 }
 
 void text_notice(const char *title, const std::string &message)
@@ -709,6 +749,7 @@ void text_notice(const char *title, const std::string &message)
 bool text_entry(const char *title, const char *label, std::string &value, size_t maximum)
 {
     ControllerMenuScope controller_menu;
+    MenuTextScope menu_text;
     TextEntry entry(value, maximum);
     TextMenu menu;
     for (;;) {
@@ -739,7 +780,7 @@ int text_confirm_quit()
     return action.id == ID_QUIT_OK;
 }
 
-static int difficulty_index()
+int current_difficulty_index()
 {
     if (l_difficulty->GetValue() == l_easy) return 0;
     if (l_difficulty->GetValue() == l_medium) return 1;
@@ -829,6 +870,7 @@ static void text_enhancements()
             {3, "Checkpoint Feedback", game_settings.checkpoint_feedback ? "[x]" : "[ ]", true, true},
             {4, "Smooth pixels", game_settings.smooth_pixels ? "[x]" : "[ ]", true, true},
             {5, "Enhanced projectiles", game_settings.enhanced_projectiles ? "[x]" : "[ ]", true, true},
+            {6, "Directional sound cues", game_settings.directional_sound ? "[x]" : "[ ]", true, true},
             {ID_CANCEL, "Back", ""}
         };
         const auto action = run_text_menu(menu, "ENHANCEMENTS", "ENTER TO TOGGLE   ESC BACK");
@@ -845,6 +887,7 @@ static void text_enhancements()
         case 2: setting = Setting::EnhancedLighting; enabled = game_settings.enhanced_lighting; break;
         case 3: setting = Setting::CheckpointFeedback; enabled = game_settings.checkpoint_feedback; break;
         case 5: setting = Setting::EnhancedProjectiles; enabled = game_settings.enhanced_projectiles; break;
+        case 6: setting = Setting::DirectionalSound; enabled = game_settings.directional_sound; break;
         default: continue;
         }
         if (!save_setting(setting, !enabled)) {
@@ -863,10 +906,12 @@ static void text_settings()
     const bool local = !main_net_cfg ||
         (main_net_cfg->state != net_configuration::SERVER && main_net_cfg->state != net_configuration::CLIENT);
     TextMenu menu;
+    auto *auto_equip = LSymbol::FindOrCreate("change_on_pickup");
     for (;;) {
         const auto volume = [](int value) { return std::to_string((value * 100 + 63) / 127) + "%  < >"; };
+        const bool auto_equip_enabled = auto_equip->GetValue() && DEFINEDP(auto_equip->GetValue());
         menu.items = {
-            {ID_DIFFICULTY, "Difficulty", std::string(names[difficulty_index()]) + "  < >", local, true},
+            {ID_DIFFICULTY, "Difficulty", std::string(names[current_difficulty_index()]) + "  < >", local, true},
             {ID_SFX_UP, "Sound effects", volume(sfx_volume), (sound_avail & SFX_INITIALIZED) != 0, true},
             {ID_MUSIC_UP, "Music", volume(music_volume), (sound_avail & MUSIC_INITIALIZED) != 0, true},
             {fullscreen_action, "Display mode", SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN ? "Fullscreen  < >" : "Windowed  < >", true, true},
@@ -875,6 +920,7 @@ static void text_settings()
                 !(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN), true},
             {ID_LIGHT_OFF, "Brightness", "Adjust..."},
             {9006, "Mouse wheel", game_settings.wheel_weapons ? "Weapons  < >" : "Off  < >", true, true},
+            {9008, "Auto-equip pickups", auto_equip_enabled ? "On  < >" : "Off  < >", local, true},
             {9002, "Key bindings", ""},
             {9003, "Controller", ""},
             {9007, "Enhancements", ""},
@@ -886,7 +932,7 @@ static void text_settings()
         else if (action.id == 9003) text_controller();
         else if (action.id == 9007) text_enhancements();
         else if (action.id == ID_DIFFICULTY) {
-            const int value = (difficulty_index() + action.direction + 4) % 4;
+            const int value = (current_difficulty_index() + action.direction + 4) % 4;
             if (save_setting(Setting::Difficulty, value)) l_difficulty->SetValue(levels[value]);
             else text_notice("SAVE FAILED", "Could not save difficulty. Previous value retained.");
         }
@@ -904,36 +950,46 @@ static void text_settings()
                 if (current_song) current_song->set_volume(music_volume);
             } else text_notice("SAVE FAILED", "Could not save music volume. Previous value retained.");
         } else if (action.id == fullscreen_action) {
-            if (!platform_set_fullscreen(!(SDL_GetWindowFlags(platform_window()) & SDL_WINDOW_FULLSCREEN)))
-                text_notice("SAVE FAILED", "Could not change and save fullscreen. Previous value restored.");
+            confirm_fullscreen_change();
         } else if (action.id == 9005) {
-            const int value = (game_settings.view_resolution + action.direction + 4) % 4;
-            if (!the_game->set_view_resolution(value))
-                text_notice("DISPLAY ERROR", "Could not change and save view resolution. Previous view retained.");
+            const int previous = game_settings.view_resolution;
+            const int value = (previous + action.direction + 4) % 4;
+            preview_display(Setting::ViewResolution, value,
+                            [&] { return the_game->set_view_resolution(value, false); },
+                            [&] { return the_game->set_view_resolution(previous, false); });
         } else if (action.id == 9006) {
             if (!save_setting(Setting::WheelWeapons, !game_settings.wheel_weapons))
                 text_notice("SAVE FAILED", "Could not save mouse wheel setting. Previous value retained.");
         } else if (action.id == 9004) {
             const int value = std::clamp(game_settings.scale + action.direction, 1, 8);
             int old_width, old_height; SDL_GetWindowSize(platform_window(), &old_width, &old_height);
-            if (!SDL_SetWindowSize(platform_window(), xres * value, yres * value)) {
-                text_notice("DISPLAY ERROR", "Could not resize the window.");
-            } else if (!save_setting(Setting::Scale, value)) {
-                SDL_SetWindowSize(platform_window(), old_width, old_height);
-                text_notice("SAVE FAILED", "Could not save window scale. Previous size restored.");
-            }
+            preview_display(Setting::Scale, value,
+                            [&] { return SDL_SetWindowSize(platform_window(), xres * value, yres * value); },
+                            [&] { return SDL_SetWindowSize(platform_window(), old_width, old_height); });
+        } else if (action.id == 9008) {
+            if (save_setting(Setting::AutoEquipPickups, !auto_equip_enabled))
+                auto_equip->SetValue(auto_equip_enabled ? nullptr : true_symbol);
+            else text_notice("SAVE FAILED", "Could not save the weapon preference.");
         } else if (action.id == ID_LIGHT_OFF) gamma_correct(pal, 1);
     }
 }
 
 void main_menu()
 {
+    constexpr int restart_checkpoint = 9002;
+    constexpr int pause_map = 9003;
     TextMenu menu;
     // Retain the existing action handlers for savegames, networking and credits.
     InputManager legacy(screen, NULL);
     for (;;) {
         menu.items.clear();
         if (current_level) menu.items.push_back({ID_RETURN, "Resume game", ""});
+        if (pause_map_available())
+            menu.items.push_back({pause_map, "Map", ""});
+        if (current_level && (!main_net_cfg || main_net_cfg->state == net_configuration::SINGLE_PLAYER)) {
+            const bool checkpoint = last_checkpoint_slot() != 0;
+            menu.items.push_back({restart_checkpoint, "Restart checkpoint", checkpoint ? "" : "No checkpoint", checkpoint});
+        }
         menu.items.push_back({ID_START_GAME, "New game", ""});
         const bool saves = show_load_icon();
         menu.items.push_back({ID_LOAD_PLAYER_GAME, "Load game", saves ? "" : "No saves", saves});
@@ -946,6 +1002,19 @@ void main_menu()
         if (action.id == -1) action.id = current_level ? ID_RETURN : ID_QUIT;
         if (action.id == ID_QUIT) {
             if (text_confirm_quit()) { the_game->end_session(); return; }
+        } else if (action.id == pause_map) {
+            show_pause_map(*current_level, *player_list->focus);
+        } else if (action.id == restart_checkpoint) {
+            TextMenu confirm;
+            confirm.items = {{ID_CANCEL, "Cancel", ""}, {restart_checkpoint, "Restart checkpoint", ""}};
+            const auto result = run_text_menu(confirm, "RESTART?", "UNSAVED PROGRESS WILL BE LOST");
+            if (result.id == restart_checkpoint) {
+                if (load_checkpoint_slot(last_checkpoint_slot())) {
+                    controller_suppress_until_neutral();
+                    return;
+                }
+                text_notice("LOAD FAILED", "The last checkpoint is no longer readable.");
+            }
         } else if (action.id == ID_VOLUME) text_settings();
         else {
             event message(action.id, NULL);

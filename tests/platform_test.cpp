@@ -158,6 +158,26 @@ int main(int argc, char **argv)
         put_image(screen, 0, 0);
         update_window_done();
         require(platform_screenshot("menu-preview.bmp"), "save menu preview");
+        SDL_Surface *preview = SDL_LoadBMP("menu-preview.bmp");
+        require(preview && preview->w == xres * 2 && preview->h == yres * 2,
+                "menu text renders at double resolution with Smooth pixels off");
+        Uint8 low_r, low_g;
+        require(SDL_ReadSurfacePixel(preview, 58, 30, &low_r, &low_g, nullptr, nullptr),
+                "read menu heading backdrop");
+        const int ink = menu_palette->find_closest(236, 239, 226);
+        bool antialiased = false;
+        for (int y = 25; y < 58 && !antialiased; ++y) {
+            for (int x = 60; x < 232; ++x) {
+                Uint8 r, g;
+                require(SDL_ReadSurfacePixel(preview, x, y, &r, &g, nullptr, nullptr), "read menu glyph");
+                if (r > low_r && r < menu_palette->red(ink) && g > low_g && g < menu_palette->green(ink)) {
+                    antialiased = true;
+                    break;
+                }
+            }
+        }
+        require(antialiased, "menu heading includes partially covered pixels");
+        SDL_DestroySurface(preview);
         event key;
         key.type = EV_KEY; key.key = JK_DOWN;
         menu.handle(key);
@@ -202,6 +222,13 @@ int main(int argc, char **argv)
         require(menu.selected == 0 && menu.first_visible == 0, "Home restores first page");
         key.key = JK_PAGEDOWN; menu.handle(key);
         require(menu.selected == 7, "page navigation advances a visible page");
+        platform_end_menu_text();
+        update_window_done();
+        require(platform_screenshot("menu-cleared.bmp"), "capture frame after leaving the menu");
+        preview = SDL_LoadBMP("menu-cleared.bmp");
+        require(preview && preview->w == xres && preview->h == yres,
+                "leaving the menu restores the ordinary framebuffer resolution");
+        SDL_DestroySurface(preview);
     }
     // Display changes persist, and a failed write restores the prior display mode.
     const auto preferences = std::filesystem::current_path() / "platform-preferences-fixture";

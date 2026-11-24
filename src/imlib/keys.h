@@ -47,6 +47,7 @@
 #define JK_PAGEDOWN 283
 #define JK_COMMAND  284
 #define JK_MAX_KEY  284
+#define JK_F11      285 // reserved display shortcut
 
 // returns a ASCII string describing a key, i.e. "Up Arrow"
 void key_name(int key, char *buffer);

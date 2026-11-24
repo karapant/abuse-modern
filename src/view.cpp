@@ -71,12 +71,10 @@ void view::add_ammo(int weapon_type, int total)
   }
   if (weapons[weapon_type]==-1) return ;   // don't have weapon yet, can't give ammo
 
-  weapons[weapon_type]+=total;
-  if (weapons[weapon_type]<0)
-    weapons[weapon_type]=0;
-
-  if (weapons[weapon_type]>999)
-    weapons[weapon_type]=999;
+  const int previous = weapons[weapon_type];
+  weapons[weapon_type] = std::clamp(int64_t(previous) + total, int64_t(0), int64_t(999));
+  if (the_game && weapons[weapon_type] > previous)
+    the_game->note_weapon_pickup(*this, weapon_type, weapons[weapon_type] - previous, false);
 
   if (weapon_total(current_weapon)==0 && current_weapon)
   {
@@ -99,8 +97,10 @@ void view::give_weapon(int type)
     printf("weapon out of range\n");
     return ;
   }
-  if (weapons[type]==-1)
+  if (weapons[type]==-1) {
     weapons[type]=0;
+    if (the_game) the_game->note_weapon_pickup(*this, type, 0, true);
+  }
 }
 
 int view::weapon_total(int type)

@@ -42,6 +42,7 @@ extern void *l_statbar_ammo_x,*l_statbar_ammo_y,
 
 
 /******************************** Lisp objects **********************************/
+int current_difficulty_index();
 extern LSymbol *l_difficulty, *l_easy, *l_hard, *l_medium, *l_extreme,
     *l_max_hp, *l_max_power,
     *l_empty_cache;

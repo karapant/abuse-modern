@@ -20,6 +20,7 @@
 #include <limits.h>
 #include <time.h>
 #include <unistd.h>
+#include <algorithm>
 #include <vector>
 
 #include "common.h"
@@ -43,6 +44,7 @@
 #include "cop.h"
 #include "nfserver.h"
 #include "lisp_gc.h"
+#include "ui/save_slots.h"
 
 level *current_level;
 
@@ -1299,7 +1301,7 @@ level::level(spec_directory *sd, bFILE *fp, char const *lev_name)
   the_game->need_refresh();
 
   char cmd[100];
-  sprintf(cmd,symbol_str("loading"),lev_name);
+  snprintf(cmd, sizeof(cmd), symbol_str("loading"), lev_name);
   stack_stat stat(cmd);
   Name = strdup(lev_name);
 
@@ -1373,9 +1375,30 @@ level::level(spec_directory *sd, bFILE *fp, char const *lev_name)
   int32_t i,w;
   uint16_t *m;
   spec_entry *load_all=sd->find("player_info");
+  if (const auto *details = sd->find(save_details_entry); load_all && details &&
+      details->size == save_details_size) {
+    fp->seek(details->offset + 1, 0);
+    play_ticks = fp->read_uint32();
+  }
+  spec_entry *map_progress=sd->find("map checkpoints.v1");
+  bool has_map_progress = false;
+  if (map_progress && map_progress->size >= 4 && (map_progress->size - 4) % 8 == 0 &&
+      (map_progress->size - 4) / 8 <= 4096 && load_all) {
+    fp->seek(map_progress->offset, 0);
+    const auto count = fp->read_uint32();
+    if (count == (map_progress->size - 4) / 8) {
+      has_map_progress = true;
+      for (uint32_t n = 0; n < count; ++n) {
+        const int32_t x = fp->read_uint32();
+        const int32_t y = fp->read_uint32();
+        if (x >= 0 && y >= 0 && x / f_wid < fg_width && y / f_hi < fg_height)
+          reached_checkpoints.emplace_back(x, y);
+      }
+    }
+  }
   for (i=0,w=fg_width*fg_height,m=map_fg; i<w; i++,m++)
   {
-    if (!load_all)
+    if (!has_map_progress)
       (*m)=(*m)&(~0x8000);    // clear the has-seen bit on the tile
 
     if (fgvalue(*m)>=nforetiles || foretiles[fgvalue(*m)]<0)
@@ -1632,7 +1655,11 @@ bFILE *level::create_dir(char *filename, int save_all,
       name_len+=strlen(v->name)+2;
     sd.add_by_hand(new spec_entry(SPEC_DATA_ARRAY,"player_names",NULL,name_len,0));
 
-    sd.add_by_hand(new spec_entry(SPEC_IMAGE,"thumb nail",NULL,4+160*(100+wm->font()->height()*2),0));
+    sd.add_by_hand(new spec_entry(SPEC_IMAGE, "thumb nail", NULL,
+                                 4 + thumbnail_width * (thumbnail_height + wm->font()->height() * 2), 0));
+    sd.add_by_hand(new spec_entry(SPEC_DATA_ARRAY, "map checkpoints.v1", NULL,
+                                 4 + reached_checkpoints.size() * 8, 0));
+    sd.add_by_hand(new spec_entry(SPEC_DATA_ARRAY, save_details_entry, NULL, save_details_size, 0));
   }
 
   sd.calc_offsets();
@@ -1640,25 +1667,46 @@ bFILE *level::create_dir(char *filename, int save_all,
   return sd.write(filename);
 }
 
-void scale_put(image *im, image *screen, int x, int y, short new_width, short new_height);
-
-void level::write_thumb_nail(bFILE *fp, image *im)
+void level::capture_save_thumbnail(image &source, vec2i top_left, vec2i bottom_right)
 {
-  image *i = new image(vec2i(160, 100 + wm->font()->height() * 2));
+  top_left.x = std::max(0, top_left.x);
+  top_left.y = std::max(0, top_left.y);
+  bottom_right.x = std::min(bottom_right.x, source.Size().x);
+  bottom_right.y = std::min(bottom_right.y, source.Size().y);
+  const auto size = bottom_right - top_left;
+  if (size.x <= 0 || size.y <= 0) return;
+
+  const int width = std::clamp(thumbnail_height * size.x / size.y, 1, thumbnail_width);
+  const int height = std::clamp(thumbnail_width * size.y / size.x, 1, thumbnail_height);
+  const int left = (thumbnail_width - width) / 2, top = (thumbnail_height - height) / 2;
+  save_thumbnail.fill(0);
+  source.Lock();
+  for (int y = 0; y < height; ++y) {
+    const auto *row = source.scan_line(top_left.y + y * size.y / height) + top_left.x;
+    auto *out = save_thumbnail.data() + (top + y) * thumbnail_width + left;
+    for (int x = 0; x < width; ++x)
+      out[x] = row[x * size.x / width];
+  }
+  source.Unlock();
+}
+
+void level::write_thumb_nail(bFILE *fp)
+{
+  image *i = new image(vec2i(thumbnail_width, wm->font()->height() * 2));
   i->clear();
-  scale_put(im,i,0,0,160,100);
   if (first_name)
-    wm->font()->put_string(i,80-strlen(first_name)*wm->font()->width()/2,100,first_name);
+    wm->font()->put_string(i,thumbnail_width/2-strlen(first_name)*wm->font()->width()/2,0,first_name);
 
   time_t t;
   t=time(NULL);
   char buf[80];
 
   strftime(buf,80,"%T %A %B %d",localtime(&t));
-  wm->font()->put_string(i,80-strlen(buf)*wm->font()->width()/2,100+wm->font()->height(),buf);
+  wm->font()->put_string(i,thumbnail_width/2-strlen(buf)*wm->font()->width()/2,wm->font()->height(),buf);
 
   fp->write_uint16(i->Size().x);
-  fp->write_uint16(i->Size().y);
+  fp->write_uint16(thumbnail_height + i->Size().y);
+  fp->write(save_thumbnail.data(), save_thumbnail.size());
 
   i->Lock();
   for(int y = 0; y < i->Size().y; y++)
@@ -2197,6 +2245,8 @@ void level::load_cache_info(spec_directory *sd, bFILE *fp)
 
 int level::save(char const *filename, int save_all)
 {
+    const int station = checkpoint_save_station;
+    checkpoint_save_station = -1;
     char name[255], bkname[255];
 
     sprintf( name, "%s%s", get_save_filename_prefix(), filename );
@@ -2318,7 +2368,15 @@ int level::save(char const *filename, int save_all)
             if( save_all )
             {
                 write_player_info( fp, objs );
-                write_thumb_nail( fp,screen );
+                write_thumb_nail( fp );
+                fp->write_uint32(reached_checkpoints.size());
+                for (auto checkpoint : reached_checkpoints) {
+                    fp->write_uint32(checkpoint.x);
+                    fp->write_uint32(checkpoint.y);
+                }
+                fp->write_uint8(current_difficulty_index());
+                fp->write_uint32(play_ticks);
+                fp->write_uint16(station >= 0 && station < no_save_station ? station : no_save_station);
             }
 
             const bool saved = fp->finish_writes();
@@ -2609,6 +2667,47 @@ game_object *level::find_object(int32_t x, int32_t y)
 }
 
 int32_t last_tile_hit_x,last_tile_hit_y;
+
+void level::explore_map(game_object &player)
+{
+    if (!map_fg || !player.hp()) return;
+    const vec2i eye(player.x, std::max(0, player.y - 10));
+    const vec2i sample(eye.x / 6, eye.y / 6);
+    if (sample == last_map_position) return;
+    last_map_position = sample;
+    const int tile_x = eye.x / f_wid, tile_y = eye.y / f_hi;
+    if (eye.x < 0 || tile_x >= fg_width || tile_y >= fg_height) return;
+
+    const int saved_x = last_tile_hit_x, saved_y = last_tile_hit_y;
+    for (int y = std::max(0, tile_y - 5); y <= std::min(int(fg_height) - 1, tile_y + 5); ++y) {
+        for (int x = std::max(0, tile_x - 3); x <= std::min(int(fg_width) - 1, tile_x + 3); ++x) {
+            if (map_seen(x, y)) continue;
+            const vec2i center(x * f_wid + f_wid / 2, y * f_hi + f_hi / 2);
+            int32_t end_x = center.x, end_y = center.y;
+            last_tile_hit_x = last_tile_hit_y = -1;
+            foreground_intersect(eye.x, eye.y, end_x, end_y);
+            if ((last_tile_hit_x < 0 || (last_tile_hit_x == x && last_tile_hit_y == y)) &&
+                !boundary_setback(&player, eye.x, eye.y, end_x, end_y))
+                mark_seen(x, y);
+        }
+    }
+    mark_seen(tile_x, tile_y);
+    for (auto *object = first_active; object; object = object->next_active) {
+        if (std::abs(object->x - player.x) > 28 || std::abs(object->y - player.y) > 26 ||
+            strcmp(object_names[object->otype], "RESTART_POSITION"))
+            continue;
+        const vec2i position(object->x, object->y);
+        int32_t end_x = position.x, end_y = std::max(0, position.y - 10);
+        last_tile_hit_x = last_tile_hit_y = -1;
+        foreground_intersect(eye.x, eye.y, end_x, end_y);
+        if (last_tile_hit_x < 0 && !boundary_setback(&player, eye.x, eye.y, end_x, end_y) &&
+            reached_checkpoints.size() < 4096 &&
+            std::find(reached_checkpoints.begin(), reached_checkpoints.end(), position) == reached_checkpoints.end())
+            reached_checkpoints.push_back(position);
+    }
+    last_tile_hit_x = saved_x;
+    last_tile_hit_y = saved_y;
+}
 
 #define remapx(x) (x==0 ? -1 : x==tl-1 ? tl+1 : x)
 #define remapy(y) (y==0 ? -1 : y==th-1 ? th+1 : y)

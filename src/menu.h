@@ -17,6 +17,7 @@ int menu(void *args, JCFont *font);             // reurns -1 on esc
 class TextMenu;
 struct TextMenuAction;
 #include <string>
+void confirm_fullscreen_change();
 TextMenuAction run_text_menu(TextMenu &menu, const char *section, const char *hint);
 void text_notice(const char *title, const std::string &message);
 bool text_entry(const char *title, const char *label, std::string &value, size_t maximum = 24);

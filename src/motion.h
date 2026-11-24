@@ -5,7 +5,8 @@
 #include "common.h"
 
 inline constexpr int frames_per_tick = 4;
-inline constexpr float gameplay_tick_ms = 1000.0f / 15;
+inline constexpr int gameplay_ticks_per_second = 15;
+inline constexpr float gameplay_tick_ms = 1000.0f / gameplay_ticks_per_second;
 
 inline vec2i interpolate_motion(vec2i previous, vec2i current, int frame)
 {

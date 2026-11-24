@@ -11,6 +11,7 @@ static bool aiming = false;
 static bool warning_pending = false;
 static bool suppress_buttons = false;
 static bool mouse_priority = false;
+static bool last_input_was_gamepad = false;
 static int menu_depth = 0;
 ControllerMenuScope::ControllerMenuScope() { ++menu_depth; }
 ControllerMenuScope::~ControllerMenuScope() { if (--menu_depth == 0) suppress_buttons = true; }
@@ -43,17 +44,38 @@ void controller_suppress_until_neutral() { suppress_buttons = true; }
 void controller_shutdown()
 {
     SDL_CloseGamepad(pad); pad = nullptr; aiming = false; warning_pending = false;
+    last_input_was_gamepad = false;
     SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
 }
 void controller_focus(bool active) { focused = active; if (!active) aiming = false; }
-void controller_mouse_used() { aiming = false; mouse_priority = true; }
+void controller_mouse_used() { aiming = false; mouse_priority = true; last_input_was_gamepad = false; }
+void controller_keyboard_used() { last_input_was_gamepad = false; }
 void controller_event(const SDL_Event &input)
 {
+    if (pad && controller_options.enabled && !controller_in_menu() && !controller_requires_two_sticks()) {
+        const auto id = SDL_GetGamepadID(pad);
+        if ((input.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && input.gbutton.which == id) ||
+            (input.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && input.gaxis.which == id &&
+             (input.gaxis.axis <= SDL_GAMEPAD_AXIS_RIGHTY ? std::abs(int(input.gaxis.value)) : input.gaxis.value)
+                 > controller_options.deadzone))
+            last_input_was_gamepad = true;
+    }
     if (input.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && pad && input.gaxis.which == SDL_GetGamepadID(pad) &&
         (input.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHTX || input.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHTY)) mouse_priority = false;
     if (input.type == SDL_EVENT_GAMEPAD_ADDED) open_first();
     else if (input.type == SDL_EVENT_GAMEPAD_REMOVED && pad && input.gdevice.which == SDL_GetGamepadID(pad)) {
-        SDL_CloseGamepad(pad); pad = nullptr; aiming = false; open_first();
+        SDL_CloseGamepad(pad); pad = nullptr; aiming = false; last_input_was_gamepad = false; open_first();
+    }
+}
+const char *controller_use_hint()
+{
+    if (!last_input_was_gamepad || !pad || !controller_options.enabled ||
+        !SDL_GamepadHasButton(pad, SDL_GAMEPAD_BUTTON_EAST)) return nullptr;
+    switch (SDL_GetGamepadButtonLabel(pad, SDL_GAMEPAD_BUTTON_EAST)) {
+        case SDL_GAMEPAD_BUTTON_LABEL_B: return "B";
+        case SDL_GAMEPAD_BUTTON_LABEL_A: return "A";
+        case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: return "Circle";
+        default: return "East button";
     }
 }
 const char *controller_name() { return pad ? SDL_GetGamepadName(pad) : "Not connected"; }

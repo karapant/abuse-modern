@@ -15,6 +15,8 @@ ControllerState controller_state();
 const char *controller_name();
 void controller_focus(bool focused);
 void controller_mouse_used();
+void controller_keyboard_used();
+const char *controller_use_hint();
 bool controller_requires_two_sticks();
 bool controller_take_warning();
 void controller_suppress_until_neutral();
