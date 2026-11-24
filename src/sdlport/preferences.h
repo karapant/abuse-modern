@@ -12,9 +12,11 @@ struct GameSettings
     int enhanced_projectiles = 1;
     int auto_equip_pickups = -1; // inherit the campaign's default
     int directional_sound = 1;
+    int combat_feedback = 1;
+    int smart_crosshair = 1;
     int view_resolution = 1; // 480x300: more surroundings than the original view
 };
-enum class Setting { Effects, Music, Difficulty, Fullscreen, Scale, ViewResolution, WheelWeapons, ModernHud, EnhancedLighting, CheckpointFeedback, SmoothPixels, EnhancedProjectiles, AutoEquipPickups, DirectionalSound };
+enum class Setting { Effects, Music, Difficulty, Fullscreen, Scale, ViewResolution, WheelWeapons, ModernHud, EnhancedLighting, CheckpointFeedback, SmoothPixels, EnhancedProjectiles, AutoEquipPickups, DirectionalSound, CombatFeedback, SmartCrosshair };
 extern GameSettings game_settings;
 extern GameSettings saved_settings;
 bool settings_load(const std::string &path, GameSettings &settings);

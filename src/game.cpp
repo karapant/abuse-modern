@@ -234,6 +234,180 @@ void Game::note_weapon_pickup(view &v, int weapon, int ammo, bool acquired)
     notice.expires = now + 2200;
 }
 
+void Game::note_weapon_switch(view &v, int weapon)
+{
+    if (state != RUN_STATE || &v != player_list || !v.local_player() || (dev & EDIT_MODE) ||
+        demo_man.current_state() != demo_manager::NORMAL || weapon < 0 || weapon >= total_weapons) return;
+    combat_feedback.switched_weapon = weapon;
+    combat_feedback.weapon_switch_expires = SDL_GetTicks() + 1100;
+}
+
+void Game::note_hit_confirm(view &v, game_object *target, bool kill)
+{
+    if (state != RUN_STATE || &v != player_list || !v.local_player() || (dev & EDIT_MODE) ||
+        !game_settings.combat_feedback || demo_man.current_state() != demo_manager::NORMAL) return;
+    const auto now = SDL_GetTicks();
+    const uint64_t duration = kill ? 220 : 150;
+    combat_feedback.hit_confirm_expires = now + duration;
+    combat_feedback.hit_confirm_duration = duration;
+    combat_feedback.hit_confirm_kill = kill;
+    if (target && !target->controller()) {
+        const int base_hp = std::max({1, int(get_ability(target->otype, start_hp)), int(target->hp())});
+        if (combat_feedback.target_enemy != target) {
+            combat_feedback.target_enemy = target;
+            combat_feedback.target_max_hp = base_hp;
+        } else {
+            combat_feedback.target_max_hp = std::max(combat_feedback.target_max_hp, base_hp);
+        }
+        combat_feedback.target_bar_expires = now + (kill ? 900 : 2500);
+    }
+}
+
+void Game::note_player_damage(view &v, int amount)
+{
+    if (state != RUN_STATE || &v != player_list || !v.local_player() || (dev & EDIT_MODE) ||
+        !game_settings.combat_feedback || demo_man.current_state() != demo_manager::NORMAL) return;
+    const auto now = SDL_GetTicks();
+    const uint64_t duration = amount >= 15 ? 320 : 240;
+    combat_feedback.damage_vignette_expires = now + duration;
+    combat_feedback.damage_vignette_duration = duration;
+}
+
+void Game::note_player_fire(view &v)
+{
+    if (state != RUN_STATE || &v != player_list || !v.local_player() || (dev & EDIT_MODE) ||
+        !game_settings.smart_crosshair || demo_man.current_state() != demo_manager::NORMAL) return;
+    const auto now = SDL_GetTicks();
+    constexpr uint64_t duration = 140;
+    combat_feedback.fire_pulse_expires = now + duration;
+    combat_feedback.fire_pulse_duration = duration;
+}
+
+static bool aim_over_target(const view &v)
+{
+    if (!current_level || !v.focus) return false;
+    for (auto *obj = current_level->first_active_object(); obj; obj = obj->next_active) {
+        if (obj == v.focus || obj->controller() == &v) continue;
+        if (!obj->hurtable() || !obj->alive() || obj->hp() <= 0) continue;
+        if (obj->total_objects() > 0 && obj->get_object(0) == v.focus) continue;
+        if (!v.focus->can_hurt(obj)) continue;
+        int32_t x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+        obj->picture_space(x1, y1, x2, y2);
+        if (v.pointer_x >= x1 && v.pointer_x <= x2 && v.pointer_y >= y1 && v.pointer_y <= y2)
+            return true;
+    }
+    return false;
+}
+
+static void draw_damage_vignette(const view &v, float strength)
+{
+    if (strength <= 0.0f || !pal || !screen) return;
+    static palette *cached_pal = nullptr;
+    static std::array<std::array<uint8_t, 256>, 6> red_blend{};
+    if (cached_pal != pal) {
+        cached_pal = pal;
+        for (int level = 0; level < 6; ++level) {
+            const float alpha = 0.09f * float(level + 1);
+            for (int c = 0; c < 256; ++c) {
+                const int r = std::min(255, int(pal->red(c) * (1.0f - alpha) + 215.0f * alpha));
+                const int g = int(pal->green(c) * (1.0f - alpha) + 18.0f * alpha);
+                const int b = int(pal->blue(c) * (1.0f - alpha) + 22.0f * alpha);
+                red_blend[level][c] = pal->find_closest_non0(r, g, b);
+            }
+        }
+    }
+    const int thickness = std::clamp(int(std::min(v.cx2 - v.cx1, v.cy2 - v.cy1) / 18), 4, 10);
+    const int max_level = std::clamp(int(strength * 5.99f), 0, 5);
+    screen->Lock();
+    for (int y = v.cy1; y <= v.cy2; ++y) {
+        const int dy = std::min(y - v.cy1, v.cy2 - y);
+        uint8_t *row = screen->scan_line(y);
+        for (int x = v.cx1; x <= v.cx2; ++x) {
+            const int dx = std::min(x - v.cx1, v.cx2 - x);
+            const int edge = std::min(dx, dy);
+            if (edge >= thickness) {
+                if (dy >= thickness) x = v.cx2 - thickness;
+                continue;
+            }
+            const int level = max_level * (thickness - edge) / thickness;
+            row[x] = red_blend[level][row[x]];
+        }
+    }
+    screen->Unlock();
+}
+
+static void draw_outlined_bar(int x1, int y1, int x2, int y2, uint8_t fill, uint8_t outline)
+{
+    screen->bar(x1 - 1, y1 - 1, x2 + 1, y2 + 1, outline);
+    screen->bar(x1, y1, x2, y2, fill);
+}
+
+static void draw_smart_crosshair(int sx, int sy, int gap, bool on_target, int ammo, uint8_t outline)
+{
+    const uint8_t color = on_target
+        ? pal->find_closest_non0(255, 112, 72)
+        : (ammo == 0 ? pal->find_closest_non0(225, 86, 86) : pal->find_closest_non0(232, 245, 238));
+    constexpr int len = 4;
+    draw_outlined_bar(sx, sy, sx, sy, color, outline);
+    draw_outlined_bar(sx - gap - len, sy, sx - gap, sy, color, outline);
+    draw_outlined_bar(sx + gap, sy, sx + gap + len, sy, color, outline);
+    draw_outlined_bar(sx, sy - gap - len, sx, sy - gap, color, outline);
+    draw_outlined_bar(sx, sy + gap, sx, sy + gap + len, color, outline);
+
+    if (ammo == 0) {
+        const uint8_t warn = pal->find_closest_non0(245, 76, 76);
+        draw_outlined_bar(sx - 3, sy + gap + len + 3, sx + 3, sy + gap + len + 3, warn, outline);
+    } else if (ammo > 0 && ammo <= 5) {
+        const uint8_t low = pal->find_closest_non0(241, 177, 73);
+        draw_outlined_bar(sx - 1, sy + gap + len + 3, sx + 1, sy + gap + len + 3, low, outline);
+    }
+}
+
+static void draw_hit_marker(int sx, int sy, bool kill, uint8_t outline)
+{
+    const uint8_t color = kill
+        ? pal->find_closest_non0(255, 104, 72)
+        : pal->find_closest_non0(255, 232, 136);
+    const int inner = kill ? 3 : 4;
+    const int outer = kill ? 7 : 6;
+    for (int d = inner; d <= outer; ++d) {
+        draw_outlined_bar(sx - d, sy - d, sx - d, sy - d, color, outline);
+        draw_outlined_bar(sx + d, sy - d, sx + d, sy - d, color, outline);
+        draw_outlined_bar(sx - d, sy + d, sx - d, sy + d, color, outline);
+        draw_outlined_bar(sx + d, sy + d, sx + d, sy + d, color, outline);
+    }
+}
+
+static game_object *find_active_target(const game_object *target)
+{
+    if (!current_level || !target) return nullptr;
+    for (auto *obj = current_level->first_active_object(); obj; obj = obj->next_active)
+        if (obj == target) return obj;
+    return nullptr;
+}
+
+static void draw_target_health_bar(view &v, game_object &target, int max_hp)
+{
+    if (!pal || !screen || max_hp <= 0) return;
+    int32_t x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    target.picture_space(x1, y1, x2, y2);
+    const int sx = (x1 + x2) / 2 - v.xoff() + v.cx1;
+    const int sy = y1 - v.yoff() + v.cy1 - 7;
+    constexpr int width = 26;
+    constexpr int height = 3;
+    const int bx = std::clamp(sx - width / 2, v.cx1 + 2, std::max(v.cx1 + 2, v.cx2 - width - 2));
+    const int by = std::clamp(sy, v.cy1 + 2, std::max(v.cy1 + 2, v.cy2 - height - 2));
+    const int hp = std::clamp(int(target.hp()), 0, max_hp);
+    const int fill_w = hp > 0 ? std::max(1, (hp * width + max_hp - 1) / max_hp) : 0;
+    const uint8_t border = pal->find_closest_non0(8, 8, 8);
+    const uint8_t bg = pal->find_closest_non0(28, 30, 34);
+    const uint8_t fill = pal->find_closest_non0(232, 74, 62);
+    screen->bar(bx - 1, by - 1, bx + width, by + height, border);
+    screen->bar(bx, by, bx + width - 1, by + height - 1, bg);
+    if (fill_w > 0)
+        screen->bar(bx, by, bx + fill_w - 1, by + height - 1, fill);
+}
+
 static std::string pickup_weapon_name(int weapon)
 {
     const std::string_view type = object_names[weapon_types[weapon]];
@@ -254,12 +428,42 @@ void Game::draw_gameplay_feedback(view &v)
     const auto active = [now](const auto &feedback) { return feedback.expires > now; };
     const bool show_pickups = &v == player_list && std::any_of(pickup_notices.begin(), pickup_notices.end(), active);
     const bool show_cues = game_settings.directional_sound && std::any_of(sound_cues.begin(), sound_cues.end(), active);
-    if (!show_pickups && !show_cues) return;
+    const bool damage_flash = game_settings.combat_feedback && &v == player_list &&
+        combat_feedback.damage_vignette_expires > now && combat_feedback.damage_vignette_duration > 0;
+    const int player_max_hp = v.focus ? std::max(1, int(get_ability(v.focus->otype, start_hp))) : 100;
+    const bool low_health = game_settings.combat_feedback && &v == player_list &&
+        v.focus && v.focus->alive() && v.focus->hp() > 0 && v.focus->hp() * 4 <= player_max_hp;
+    const bool show_vignette = damage_flash || low_health;
+    game_object *target_enemy = (game_settings.combat_feedback && &v == player_list &&
+        combat_feedback.target_bar_expires > now)
+        ? find_active_target(combat_feedback.target_enemy)
+        : nullptr;
+    const bool show_hit = game_settings.combat_feedback && &v == player_list &&
+        combat_feedback.hit_confirm_expires > now;
+    const bool show_switch = &v == player_list && combat_feedback.switched_weapon >= 0 &&
+        combat_feedback.weapon_switch_expires > now;
+    const bool show_crosshair = game_settings.smart_crosshair && &v == player_list;
+    if (!show_pickups && !show_cues && !show_vignette && !target_enemy && !show_hit && !show_switch && !show_crosshair) return;
     const auto center = vec2i((v.cx1 + v.cx2) / 2, (v.cy1 + v.cy2) / 2);
     const int height = wm->font()->height();
     int left, top, right, bottom;
     screen->GetClip(left, top, right, bottom);
     screen->SetClip(v.cx1, v.cy1, v.cx2 + 1, v.cy2 + 1);
+    if (show_vignette) {
+        float strength = 0.0f;
+        if (damage_flash) {
+            strength = float(combat_feedback.damage_vignette_expires - now) /
+                float(combat_feedback.damage_vignette_duration);
+        }
+        if (low_health) {
+            const float pulse = 0.25f + 0.30f * (0.5f + 0.5f * std::sin(float(now) * 0.008f));
+            const float urgency = 1.0f - float(v.focus->hp()) / float(std::max(1, player_max_hp / 4));
+            strength = std::max(strength, pulse * (0.65f + 0.35f * urgency));
+        }
+        draw_damage_vignette(v, strength);
+    }
+    if (target_enemy)
+        draw_target_health_bar(v, *target_enemy, combat_feedback.target_max_hp);
     const int background = pal->find_closest(18, 24, 30);
     const int ink = pal->find_closest(236, 239, 226);
     const int amber = pal->find_closest(241, 177, 73);
@@ -274,15 +478,21 @@ void Game::draw_gameplay_feedback(view &v)
         screen->bar(x - half, y, x - half + 1, y + height + 3, accent);
         wm->font()->put_string(screen, x - text_width / 2, y + 2, label.c_str(), ink);
     };
+    int pickup_y = v.cy2 - height - 8;
     if (show_pickups) {
-        int y = v.cy2 - height - 8;
         for (const auto &notice : pickup_notices) {
             if (notice.expires <= now) continue;
             auto label = (notice.acquired ? "New: " : "") + pickup_weapon_name(notice.weapon);
             if (notice.ammo) label += "  +" + std::to_string(notice.ammo) + " ammo";
-            badge(center.x, y, label, amber);
-            y -= height + 7;
+            badge(center.x, pickup_y, label, amber);
+            pickup_y -= height + 7;
         }
+    }
+    if (show_switch) {
+        auto label = pickup_weapon_name(combat_feedback.switched_weapon);
+        const int ammo = v.weapon_total(combat_feedback.switched_weapon);
+        if (ammo > 0) label += "  " + std::to_string(ammo);
+        badge(center.x, pickup_y, label, amber);
     }
     if (show_cues) {
         static const char *names[] = {"Door", "Lift", "Enemy alert"};
@@ -313,6 +523,24 @@ void Game::draw_gameplay_feedback(view &v)
                 badge(x, y + (delta.y < 0 ? inset : -inset), label, blue);
             }
         }
+    }
+    if (show_crosshair || show_hit) {
+        int32_t sx = 0, sy = 0;
+        game_to_mouse(v.pointer_x, v.pointer_y, &v, sx, sy);
+        const uint8_t outline = pal->find_closest_non0(8, 8, 8);
+        if (show_crosshair) {
+            int gap = 3;
+            if (combat_feedback.fire_pulse_expires > now && combat_feedback.fire_pulse_duration > 0) {
+                const float pulse = float(combat_feedback.fire_pulse_expires - now) /
+                    float(combat_feedback.fire_pulse_duration);
+                gap += int(std::lround(4.0f * pulse));
+            }
+            const bool on_target = aim_over_target(v);
+            const int ammo = v.weapon_total(v.current_weapon);
+            draw_smart_crosshair(sx, sy, gap, on_target, ammo, outline);
+        }
+        if (show_hit)
+            draw_hit_marker(sx, sy, combat_feedback.hit_confirm_kill, outline);
     }
     screen->SetClip(left, top, right, bottom);
 }
@@ -596,8 +824,17 @@ void Game::set_state(int new_state)
 
     pal->load();    // restore old palette
 
-    if(playing_state(state) &&  !(dev & EDIT_MODE))
-        set_aim_cursor();
+    if(playing_state(state) && !(dev & EDIT_MODE))
+    {
+        if (game_settings.smart_crosshair && state == RUN_STATE && !(dev & MAP_MODE))
+        {
+            auto *blank = new image(vec2i(1, 1));
+            blank->clear();
+            wm->set_mouse_shape(blank, 0, 0);
+        }
+        else
+            set_aim_cursor();
+    }
     else
         wm->set_mouse_shape(cache.img(c_normal)->copy(), 1, 1);
 
@@ -748,6 +985,7 @@ void Game::load_level(char const *name, bool new_game)
     current_level = nullptr;
     pickup_notices = {};
     sound_cues = {};
+    combat_feedback = {};
 
     bFILE *fp = open_file(name, "rb");
 

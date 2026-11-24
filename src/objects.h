@@ -60,6 +60,7 @@ public :
   int32_t *lvars;
   uint32_t movement_tick = 0;
   vec2i render_shift = vec2i(0, 0);
+  uint8_t hit_flash_ticks = 0;
 
   int size();
   int decide();        // returns 0 if you want to be deleted

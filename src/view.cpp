@@ -235,6 +235,7 @@ view::view(game_object *Focus, view *Next, int number)
 
   ambient=32;
   current_weapon=0;
+  previous_weapon=-1;
 
   strcpy(name,get_login());
   suggest.send_view=0;
@@ -518,7 +519,12 @@ int view::process_input(char cmd, uint8_t *&pk)   // return 0 if something went 
     {
       int32_t x;
       memcpy(&x,pk,4);  pk+=4;
-      current_weapon=lltl(x);
+      const int32_t next_weapon_id = lltl(x);
+      if (next_weapon_id != current_weapon)
+        previous_weapon = current_weapon;
+      current_weapon = next_weapon_id;
+      if (local_player() && the_game)
+        the_game->note_weapon_switch(*this, current_weapon);
 
       suggest.send_weapon_change=0;
       return 1;
@@ -625,6 +631,17 @@ void view::last_weapon()
 
 }
 
+void view::swap_last_weapon()
+{
+  if (previous_weapon >= 0 && previous_weapon < total_weapons &&
+      previous_weapon != current_weapon &&
+      (weapon_total(previous_weapon) > 0 || previous_weapon == 0))
+  {
+    suggest.send_weapon_change = 1;
+    suggest.new_weapon = previous_weapon;
+  }
+}
+
 int view::handle_event(event &ev)
 {
     if( ev.type == EV_KEY )
@@ -671,11 +688,23 @@ int view::handle_event(event &ev)
             case '5':
             case '6':
             case '7':
+            case '8':
             {
-                if((( dev & EDIT_MODE ) == 0 ) && ( weapon_total( ev.key - '1' ) > 0 ))
+                const int slot = ev.key - '1';
+                if((( dev & EDIT_MODE ) == 0 ) && slot < total_weapons && ( weapon_total( slot ) > 0 || slot == 0 ))
                 {
                     suggest.send_weapon_change = 1;
-                    suggest.new_weapon=ev.key - '1';
+                    suggest.new_weapon = slot;
+                }
+            } break;
+
+            case 'q':
+            case 'Q':
+            {
+                if((( dev & EDIT_MODE ) == 0 ) && total_weapons )
+                {
+                    swap_last_weapon();
+                    return 1;
                 }
             } break;
 
@@ -873,6 +902,7 @@ void view::reset_player()
     if (total_weapons)
       weapons[0]=0;  // give him the first weapon
     current_weapon=0;
+    previous_weapon=-1;
 
     memset(focus->lvars,0,figures[focus->otype]->tv*4);
     focus->set_aistate(0);

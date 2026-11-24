@@ -240,6 +240,9 @@ static int player_fire_weapon(game_object *o, int type, game_object *target, int
   ((LSymbol *)l_fire_object)->EvalFunction(list);
   o->lvars[top_just_fired]=1;
   other->lvars[just_fired]=1;
+  if (view *v = other->controller())
+    if (v->local_player() && the_game)
+      the_game->note_player_fire(*v);
   other->x=ox;
   other->y=oy;
 

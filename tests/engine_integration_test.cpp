@@ -758,7 +758,8 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         else choose(menu, "Enhancements");
     } else if (phase == 64 && page == "ENHANCEMENTS") {
         require(menu->items.at(0).value == "[x]" && menu->items.at(1).value == "[x]" &&
-                menu->items.at(2).value == "[x]" && menu->items.at(3).value == "[ ]" && menu->items.at(4).value == "[x]",
+                menu->items.at(2).value == "[x]" && menu->items.at(3).value == "[ ]" && menu->items.at(4).value == "[x]" &&
+                menu->items.at(6).value == "[x]" && menu->items.at(7).value == "[x]",
                 "original enhancements are enabled and smoothing is off by default");
         if (selected(menu, "Modern HUD")) { enter(); phase = 65; }
         else choose(menu, "Modern HUD");
@@ -782,12 +783,21 @@ extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextM
         else choose(menu, "Enhanced projectiles");
     } else if (phase == 70 && page == "ENHANCEMENTS") {
         if (game_settings.enhanced_projectiles) return;
+        if (selected(menu, "Combat feedback")) { enter(); phase = 77; }
+        else choose(menu, "Combat feedback");
+    } else if (phase == 77 && page == "ENHANCEMENTS") {
+        if (game_settings.combat_feedback) return;
+        if (selected(menu, "Smart crosshair")) { enter(); phase = 78; }
+        else choose(menu, "Smart crosshair");
+    } else if (phase == 78 && page == "ENHANCEMENTS") {
+        if (game_settings.smart_crosshair) return;
         GameSettings reloaded;
         require(menu->items.at(1).value == "[ ]" && menu->items.at(2).value == "[ ]" && menu->items.at(3).value == "[x]" &&
-                menu->items.at(4).value == "[ ]" &&
+                menu->items.at(4).value == "[ ]" && menu->items.at(6).value == "[ ]" && menu->items.at(7).value == "[ ]" &&
                 settings_load((root / "settings.cfg").string(), reloaded) &&
                 !reloaded.modern_hud && !reloaded.enhanced_lighting && !reloaded.checkpoint_feedback &&
-                reloaded.smooth_pixels && !reloaded.enhanced_projectiles,
+                reloaded.smooth_pixels && !reloaded.enhanced_projectiles &&
+                !reloaded.combat_feedback && !reloaded.smart_crosshair,
                 "changed enhancements are saved from the pause menu");
         escape(); phase = 67;
     } else if (phase == 67 && page == "SETTINGS") {
@@ -895,6 +905,148 @@ static void check_projectile_styles(view *v)
     screen = frame;
 }
 
+static void check_combat_feedback(view *v)
+{
+    const int saved_combat = game_settings.combat_feedback;
+    const int saved_crosshair = game_settings.smart_crosshair;
+    const int saved_ammo = v->weapons[v->current_weapon];
+    const int saved_hp = v->focus->hp();
+    const auto differs = [](image &a, image &b, int x1, int y1, int x2, int y2) {
+        const int left = std::max(0, x1), top = std::max(0, y1);
+        const int right = std::min(a.Size().x - 1, x2), bottom = std::min(a.Size().y - 1, y2);
+        for (int y = top; y <= bottom; ++y)
+            for (int x = left; x <= right; ++x)
+                if (a.scan_line(y)[x] != b.scan_line(y)[x]) return true;
+        return false;
+    };
+
+    const int32_t saved_px = v->pointer_x, saved_py = v->pointer_y;
+    v->pointer_x = v->focus->x + 36;
+    v->pointer_y = v->focus->y - 16;
+
+    game_settings.combat_feedback = 0;
+    game_settings.smart_crosshair = 0;
+    the_game->update_screen();
+    image baseline(screen->Size());
+    screen->put_image(&baseline, 0, 0);
+
+    int32_t sx = 0, sy = 0;
+    the_game->game_to_mouse(v->pointer_x, v->pointer_y, v, sx, sy);
+
+    game_settings.smart_crosshair = 1;
+    the_game->note_player_fire(*v);
+    the_game->update_screen();
+    require(differs(*screen, baseline, sx - 10, sy - 10, sx + 10, sy + 10),
+            "smart crosshair draws at the aim position");
+    image idle_crosshair(screen->Size());
+    screen->put_image(&idle_crosshair, 0, 0);
+
+    v->weapons[v->current_weapon] = 0;
+    the_game->update_screen();
+    require(differs(*screen, idle_crosshair, sx - 5, sy + 5, sx + 5, sy + 15),
+            "empty ammo renders an indicator below the smart crosshair");
+    v->weapons[v->current_weapon] = saved_ammo;
+
+    int enemy_type = 0;
+    while (enemy_type < total_objects && strcmp(object_names[enemy_type], "ANT_ROOF")) ++enemy_type;
+    require(enemy_type < total_objects, "find ANT_ROOF enemy type for combat feedback test");
+    auto *enemy = create(enemy_type, v->focus->x + 36, v->focus->y);
+    current_level->add_object(enemy);
+    int32_t ex1 = 0, ey1 = 0, ex2 = 0, ey2 = 0;
+    enemy->picture_space(ex1, ey1, ex2, ey2);
+    v->pointer_x = (ex1 + ex2) / 2;
+    v->pointer_y = (ey1 + ey2) / 2;
+    the_game->game_to_mouse(v->pointer_x, v->pointer_y, v, sx, sy);
+
+    game_settings.combat_feedback = 1;
+    the_game->update_screen();
+    image before_hit(screen->Size());
+    screen->put_image(&before_hit, 0, 0);
+    require(differs(*screen, baseline, sx - 8, sy - 8, sx + 8, sy + 8),
+            "aiming over a hurtable enemy highlights the smart crosshair");
+
+    enemy->do_damage(1, v->focus, enemy->x, enemy->y, 0, 0);
+    require(enemy->hit_flash_ticks > 0, "damaging an enemy triggers hit flash ticks");
+    the_game->update_screen();
+    require(differs(*screen, before_hit, sx + 3, sy + 3, sx + 8, sy + 8),
+            "damaging an enemy draws diagonal hit-marker ticks");
+    enemy->picture_space(ex1, ey1, ex2, ey2);
+    const int bar_x = std::clamp((ex1 + ex2) / 2 - v->xoff() + v->cx1 - 13,
+                                 v->cx1 + 2, std::max(v->cx1 + 2, v->cx2 - 28));
+    const int bar_y = std::clamp(ey1 - v->yoff() + v->cy1 - 7,
+                                 v->cy1 + 2, std::max(v->cy1 + 2, v->cy2 - 5));
+    require(differs(*screen, before_hit, bar_x - 1, bar_y - 1, bar_x + 26, bar_y + 3),
+            "damaging an enemy draws a compact target health bar above it");
+
+    v->pointer_x = saved_px;
+    v->pointer_y = saved_py;
+
+    v->focus->do_damage(5, enemy, v->focus->x, v->focus->y, 0, 0);
+    the_game->update_screen();
+    require(differs(*screen, baseline, v->cx1, v->cy1, v->cx1 + 4, v->cy1 + 4),
+            "player damage draws a viewport edge vignette");
+    current_level->delete_object(enemy);
+
+    // Clear recent damage vignette via level reload? No—just test low-health pulse directly after expiry or on fresh state:
+    game_settings.combat_feedback = 0;
+    v->focus->set_hp(10);
+    the_game->update_screen();
+    image low_hp_off(screen->Size());
+    screen->put_image(&low_hp_off, 0, 0);
+    game_settings.combat_feedback = 1;
+    the_game->update_screen();
+    require(differs(*screen, low_hp_off, v->cx1, v->cy1, v->cx1 + 4, v->cy1 + 4),
+            "low player health draws a pulsing edge warning");
+    v->focus->set_hp(saved_hp);
+
+    // Quick weapon hotkeys ('1'-'8'), last-weapon swap ('q'), and weapon switch badge
+    const int saved_cur_weapon = v->current_weapon;
+    const int saved_prev_weapon = v->previous_weapon;
+    const int saved_w1 = total_weapons > 1 ? v->weapons[1] : -1;
+    const int saved_w7 = total_weapons > 7 ? v->weapons[7] : -1;
+    if (total_weapons > 1) {
+        v->weapons[1] = 25;
+        const auto apply_weapon_change = [&](int slot) {
+            uint8_t bytes[4];
+            const int32_t le = lltl(slot);
+            memcpy(bytes, &le, 4);
+            uint8_t *ptr = bytes;
+            require(v->process_input(SCMD_WEAPON_CHANGE, ptr) == 1, "process weapon change command");
+        };
+        event key_ev;
+        key_ev.type = EV_KEY;
+        key_ev.key = '2';
+        v->handle_event(key_ev);
+        require(v->suggest.send_weapon_change && v->suggest.new_weapon == 1, "hotkey '2' selects weapon slot 1");
+        apply_weapon_change(v->suggest.new_weapon);
+        require(v->current_weapon == 1 && v->previous_weapon == saved_cur_weapon, "weapon change tracks previous weapon");
+        if (total_weapons > 7) {
+            v->weapons[7] = 15;
+            key_ev.key = '8';
+            v->handle_event(key_ev);
+            require(v->suggest.send_weapon_change && v->suggest.new_weapon == 7, "hotkey '8' selects weapon slot 7");
+            apply_weapon_change(v->suggest.new_weapon);
+        }
+        key_ev.key = 'q';
+        require(v->handle_event(key_ev) == 1 && v->suggest.send_weapon_change &&
+                v->suggest.new_weapon == (total_weapons > 7 ? 1 : saved_cur_weapon),
+                "'q' swaps back to the previous weapon");
+        apply_weapon_change(v->suggest.new_weapon);
+        the_game->update_screen();
+        const int mid_x = (v->cx1 + v->cx2) / 2;
+        require(differs(*screen, baseline, mid_x - 40, v->cy2 - 30, mid_x + 40, v->cy2 - 4),
+                "switching weapons displays a brief weapon/ammo badge");
+        v->weapons[1] = saved_w1;
+        if (total_weapons > 7) v->weapons[7] = saved_w7;
+    }
+    v->current_weapon = saved_cur_weapon;
+    v->previous_weapon = saved_prev_weapon;
+    v->suggest.send_weapon_change = 0;
+
+    game_settings.combat_feedback = saved_combat;
+    game_settings.smart_crosshair = saved_crosshair;
+}
+
 static void check_motion_frames(view *camera, game_object *shot)
 {
     require(interpolate_motion({10, 20}, {22, 12}, 1) == vec2i(13, 18) &&
@@ -1000,6 +1152,7 @@ static void check_opening_level(view *v)
                     snapshot("tutorial-shot-smooth.bmp");
                     require(platform_set_smooth_pixels(false), "restore crisp pixels after capture");
                     check_projectile_styles(v);
+                    check_combat_feedback(v);
                     check_motion_frames(v, object);
                 }
                 break;

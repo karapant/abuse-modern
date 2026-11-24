@@ -660,6 +660,8 @@ int level::tick()
     if (!(dev&SUSPEND_MODE) || c)
     {
       o->set_flags(o->flags()&(0xff-FLAG_JUST_HIT-FLAG_JUST_BLOCKED));
+      if (o->hit_flash_ticks > 0)
+        --o->hit_flash_ticks;
 
       if (c)
       {

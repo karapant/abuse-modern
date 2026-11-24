@@ -89,9 +89,24 @@ private:
     vec2i position{0, 0};
     uint64_t expires = 0;
   };
+  struct CombatFeedback {
+    uint64_t hit_confirm_expires = 0;
+    uint64_t hit_confirm_duration = 0;
+    bool hit_confirm_kill = false;
+    uint64_t damage_vignette_expires = 0;
+    uint64_t damage_vignette_duration = 0;
+    uint64_t fire_pulse_expires = 0;
+    uint64_t fire_pulse_duration = 0;
+    game_object *target_enemy = nullptr;
+    int target_max_hp = 0;
+    uint64_t target_bar_expires = 0;
+    int switched_weapon = -1;
+    uint64_t weapon_switch_expires = 0;
+  };
   std::array<PickupNotice, 2> pickup_notices{};
   std::array<SoundCue, 3> sound_cues{};
   std::array<int, 4> cue_sound_ids{};
+  CombatFeedback combat_feedback{};
   void draw_gameplay_feedback(view &v);
 
 
@@ -114,6 +129,10 @@ public :
   void step();
   void show_help(char const *st);
   void note_weapon_pickup(view &v, int weapon, int ammo, bool acquired);
+  void note_weapon_switch(view &v, int weapon);
+  void note_hit_confirm(view &v, game_object *target = nullptr, bool kill = false);
+  void note_player_damage(view &v, int amount);
+  void note_player_fire(view &v);
   void draw_value(image *screen, int x, int y, int w, int h, int val, int max);
   unsigned char get_color(int x) { return x; }
   int done();

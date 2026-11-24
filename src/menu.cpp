@@ -871,6 +871,8 @@ static void text_enhancements()
             {4, "Smooth pixels", game_settings.smooth_pixels ? "[x]" : "[ ]", true, true},
             {5, "Enhanced projectiles", game_settings.enhanced_projectiles ? "[x]" : "[ ]", true, true},
             {6, "Directional sound cues", game_settings.directional_sound ? "[x]" : "[ ]", true, true},
+            {7, "Combat feedback", game_settings.combat_feedback ? "[x]" : "[ ]", true, true},
+            {8, "Smart crosshair", game_settings.smart_crosshair ? "[x]" : "[ ]", true, true},
             {ID_CANCEL, "Back", ""}
         };
         const auto action = run_text_menu(menu, "ENHANCEMENTS", "ENTER TO TOGGLE   ESC BACK");
@@ -888,6 +890,8 @@ static void text_enhancements()
         case 3: setting = Setting::CheckpointFeedback; enabled = game_settings.checkpoint_feedback; break;
         case 5: setting = Setting::EnhancedProjectiles; enabled = game_settings.enhanced_projectiles; break;
         case 6: setting = Setting::DirectionalSound; enabled = game_settings.directional_sound; break;
+        case 7: setting = Setting::CombatFeedback; enabled = game_settings.combat_feedback; break;
+        case 8: setting = Setting::SmartCrosshair; enabled = game_settings.smart_crosshair; break;
         default: continue;
         }
         if (!save_setting(setting, !enabled)) {

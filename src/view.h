@@ -53,6 +53,7 @@ class view
 
   int32_t *weapons;                          // [0..total_weapons-1]
   int32_t current_weapon;
+  int32_t previous_weapon = -1;
 
 
   game_object *focus;                     // object we are focusing on (player)
@@ -110,6 +111,7 @@ class view
 
   void next_weapon();
   void last_weapon();
+  void swap_last_weapon();
 
   void reset_player();
   int receive_failed() { return focus==NULL; }

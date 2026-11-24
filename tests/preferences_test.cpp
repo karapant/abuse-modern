@@ -15,13 +15,16 @@ int main()
     std::filesystem::remove_all(root); std::filesystem::create_directories(root);
     const auto path = (root / "settings.cfg").string();
     GameSettings saved;
-    require(saved.modern_hud && saved.enhanced_lighting && saved.checkpoint_feedback, "enhancements default to on");
+    require(saved.modern_hud && saved.enhanced_lighting && saved.checkpoint_feedback &&
+            saved.combat_feedback && saved.smart_crosshair, "enhancements default to on");
     saved.modern_hud = 0; saved.enhanced_lighting = 0; saved.checkpoint_feedback = 0;
+    saved.combat_feedback = 0; saved.smart_crosshair = 0;
     saved.sfx_volume = 17; saved.music_volume = 0; saved.difficulty = 3; saved.fullscreen = 1; saved.scale = 8; saved.view_resolution = 3; saved.wheel_weapons = 0;
     require(settings_write(path, saved), "write settings");
     GameSettings restarted;
     require(settings_load(path, restarted), "load settings after restart");
-    require(!restarted.modern_hud && !restarted.enhanced_lighting && !restarted.checkpoint_feedback, "disabled enhancements survive restart");
+    require(!restarted.modern_hud && !restarted.enhanced_lighting && !restarted.checkpoint_feedback &&
+            !restarted.combat_feedback && !restarted.smart_crosshair, "disabled enhancements survive restart");
     require(restarted.sfx_volume == 17 && restarted.music_volume == 0 && restarted.difficulty == 3 && restarted.fullscreen == 1 && restarted.scale == 8 && restarted.view_resolution == 3 && restarted.wheel_weapons == 0,
             "all fields survive restart, including mute and maximum scale");
     std::ofstream(root / "invalid.cfg") << "# comment\nscale=0\nscale=999999999999999999999\nsfx_volume=-1\nmusic_volume=128\ndifficulty=4\nfullscreen=2\nview_resolution=4\nwheel_weapons=2\nscale=3junk\nunknown=5\n";

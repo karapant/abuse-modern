@@ -12,7 +12,7 @@ An SDL3 port of Abuse 0.8 with upgraded graphics, widescreen play, redesigned me
 
 On first launch, download the Abuse 0.8 game data through the launcher or import an archive or folder you already have.
 
-Use **WASD** to move, the **mouse** to aim, and **left click** to fire. Press **Esc** to pause. Change bindings and controller settings under **Settings**.
+Use **WASD** to move, the **mouse** to aim, and **left click** to fire. Press **1–8** to select a weapon directly, **Q** to swap to your last weapon, and **Esc** to pause. Change bindings and controller settings under **Settings**.
 
 ## Before and after
 
@@ -30,7 +30,7 @@ The same scene with enhancements off (left) and on (right), showing the redesign
 
 Save consoles now light up as you approach. [See the checkpoint glow](site/screenshots/checkpoint-glow.png).
 
-Toggle the graphics upgrades under **Settings → Enhancements**. Abuse Modern also adds smoother camera and object motion and an optional pixel filter.
+Toggle the graphics and combat upgrades under **Settings → Enhancements**. Abuse Modern also adds smoother camera and object motion, an optional pixel filter, **Combat feedback** (reticle hit-markers, enemy hit-flashes, target health bars, and a damage/low-health edge vignette), and a **Smart crosshair** (fire-pulse reticle, target-hover highlight, and low/empty ammo cues).
 
 ## Build from source
 

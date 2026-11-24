@@ -482,8 +482,11 @@ void game_object::do_damage(int amount, game_object *from, int32_t hitx, int32_t
                 int32_t push_xvel, int32_t push_yvel)
 {
   // No friendly fire
-  if((_team != -1) && (_team == from->get_team()))
+  if((_team != -1) && from && (_team == from->get_team()))
     return;
+
+  const int hp_before = hp();
+  const bool was_hurtable = hurtable() && alive();
 
   void *d=figures[otype]->get_fun(OFUN_DAMAGE);
   if (d)
@@ -540,6 +543,31 @@ void game_object::do_damage(int amount, game_object *from, int32_t hitx, int32_t
 
     current_object = o;
   } else damage_fun(amount,from,hitx,hity,push_xvel,push_yvel);
+
+  const bool damaged = was_hurtable && ((flags() & FLAG_JUST_HIT) || hp() < hp_before);
+  if (damaged)
+  {
+    if (!controller())
+      hit_flash_ticks = 2;
+
+    if (the_game)
+    {
+      if (view *victim = controller())
+      {
+        if (victim->local_player() && (hp() < hp_before || amount > 0))
+          the_game->note_player_damage(*victim, amount);
+      }
+
+      if (from)
+      {
+        view *attacker = from->controller();
+        if (!attacker && from->total_objects() > 0)
+          attacker = from->get_object(0)->controller();
+        if (attacker && attacker->local_player() && attacker->focus != this)
+          the_game->note_hit_confirm(*attacker, this, hp() <= 0);
+      }
+    }
+  }
 }
 
 void game_object::damage_fun(int amount, game_object *from, int32_t hitx, int32_t hity,
@@ -1064,9 +1092,17 @@ void game_object::drawer()
     else
     {
       TransImage *cpict=picture();
-      cpict->PutImage(screen,
-               vec2i((direction<0 ? x-(cpict->Size().x-x_center()-1) : x-x_center())-current_vxadd,
-                     y-cpict->Size().y+1-current_vyadd));
+      const vec2i pos((direction<0 ? x-(cpict->Size().x-x_center()-1) : x-x_center())-current_vxadd,
+                      y-cpict->Size().y+1-current_vyadd);
+      if (game_settings.combat_feedback && hit_flash_ticks > 0 && !controller())
+      {
+        extern uint8_t bright_tint[256];
+        cpict->PutRemap(screen, pos, bright_tint);
+      }
+      else
+      {
+        cpict->PutImage(screen, pos);
+      }
     }
   }
 }
