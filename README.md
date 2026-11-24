@@ -24,9 +24,11 @@ Use **WASD** to move, the **mouse** to aim, and **left click** to fire. Press **
 
 ### In-game graphics
 
-The same scene with enhancements off (left) and on (right). Look for the redesigned HUD, the gold checkpoint marker, and the brighter projectile trail casting light on nearby terrain.
+The same scene with enhancements off (left) and on (right), showing the redesigned HUD and projectile lighting in an earlier build.
 
 ![Gameplay comparison with enhancements off on the left and on on the right](resources/enhancements-comparison.png)
+
+Save consoles now light up as you approach. [See the checkpoint glow](site/screenshots/checkpoint-glow.png).
 
 Toggle the graphics upgrades under **Settings → Enhancements**. Abuse Modern also adds smoother camera and object motion and an optional pixel filter.
 

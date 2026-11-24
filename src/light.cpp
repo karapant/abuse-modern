@@ -31,6 +31,7 @@
 #include "filter.h"
 #include "status.h"
 #include "dev.h"
+#include "items.h"
 
 light_source *first_light_source=NULL;
 uint8_t *white_light,*white_light_initial,*green_light,*trans_table;
@@ -53,6 +54,32 @@ struct ProjectileLight {
     int x1, y1, x2, y2;
 };
 std::vector<ProjectileLight> projectile_lights;
+using LightBlend = std::array<std::array<uint8_t, 256>, 8>;
+
+std::array<uint8_t, 768> palette_rgb(palette &colors)
+{
+    std::array<uint8_t, 768> rgb{};
+    for (int i = 0; i < 256; ++i) {
+        rgb[3 * i] = colors.red(i);
+        rgb[3 * i + 1] = colors.green(i);
+        rgb[3 * i + 2] = colors.blue(i);
+    }
+    return rgb;
+}
+
+void blend_light_disc(image &target, int left, int top, int right, int bottom,
+                      int cx, int cy, int radius, int strength, const LightBlend &table)
+{
+    const int radius_squared = radius * radius;
+    for (int y = std::max(top, cy - radius); y < std::min(bottom, cy + radius); ++y) {
+        auto *row = target.scan_line(y);
+        for (int x = std::max(left, cx - radius); x < std::min(right, cx + radius); ++x) {
+            const int dx = x - cx, dy = y - cy;
+            const int blend = strength * (radius_squared - dx * dx - dy * dy) / radius_squared;
+            if (blend > 0) row[x] = table[blend][row[x]];
+        }
+    }
+}
 }
 
 void clear_projectile_lights()
@@ -794,21 +821,176 @@ bool has_projectile_lights()
     return light_detail != POOR_DETAIL && !projectile_lights.empty();
 }
 
-void reflect_projectile_lights(image &target, image &surfaces, int world_x, int world_y, palette &colors)
+void draw_turret_charge(image &target, palette &colors, vec2i muzzle, int charge)
+{
+    int left, top, right, bottom;
+    target.GetClip(left, top, right, bottom);
+    const int radius = 2 + charge;
+    if (muzzle.x + radius < left || muzzle.x - radius >= right ||
+        muzzle.y + radius < top || muzzle.y - radius >= bottom)
+        return;
+
+    static LightBlend amber;
+    static std::array<uint8_t, 768> previous{};
+    static bool ready = false;
+    const auto rgb = palette_rgb(colors);
+    if (!ready || rgb != previous) {
+        for (int strength = 1; strength < int(amber.size()); ++strength) {
+            for (int i = 0; i < 256; ++i) {
+                const int r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
+                amber[strength][i] = colors.find_closest(
+                    r + std::max(0, 246 - r) * strength / 7,
+                    g + std::max(0, 174 - g) * strength / 7,
+                    b + std::max(0, 66 - b) * strength / 7);
+            }
+        }
+        previous = rgb;
+        ready = true;
+    }
+    blend_light_disc(target, left, top, right, bottom, muzzle.x, muzzle.y, radius, 1 + charge * 2, amber);
+}
+
+void draw_save_console_glow(image &target, palette &colors, vec2i position, vec2i size, float intensity)
+{
+    // Center the small pool of light on the console's monitor. The tight
+    // inner ellipse lights the display while a softer halo catches its case.
+    const float cx = position.x + size.x * 0.5f;
+    const float cy = position.y + size.y * 0.27f;
+    const float rx = size.x * 0.88f, ry = size.y * 0.68f;
+    int left, top, right, bottom;
+    target.GetClip(left, top, right, bottom);
+    left = std::max(left, int(std::floor(cx - rx)));
+    top = std::max(top, int(std::floor(cy - ry)));
+    right = std::min(right, int(std::ceil(cx + rx)));
+    bottom = std::min(bottom, int(std::ceil(cy + ry)));
+    if (left >= right || top >= bottom) return;
+
+    constexpr int steps = 24;
+    static std::array<std::array<uint8_t, 256>, steps + 1> glow{};
+    static std::array<uint8_t, 768> previous{};
+    static bool ready = false;
+    const auto rgb = palette_rgb(colors);
+    if (!ready || rgb != previous) {
+        for (int strength = 1; strength <= steps; ++strength) {
+            for (int i = 0; i < 256; ++i) {
+                const int r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
+                glow[strength][i] = colors.find_closest(
+                    std::min(255, r + 24 * strength / steps),
+                    std::min(255, g + 91 * strength / steps),
+                    std::min(255, b + 72 * strength / steps));
+            }
+        }
+        previous = rgb;
+        ready = true;
+    }
+
+    for (int y = top; y < bottom; ++y) {
+        auto *row = target.scan_line(y);
+        const float dy = (y - cy) / ry;
+        for (int x = left; x < right; ++x) {
+            const float dx = (x - cx) / rx;
+            const float halo = std::max(0.f, 1.f - dx * dx - dy * dy);
+            const float panel = std::max(0.f, 1.f - 3.5f * dx * dx - 6.5f * dy * dy);
+            const float falloff = 0.42f * halo * halo + 0.58f * panel * (2.f - panel);
+            const int strength = int(steps * intensity * falloff + 0.5f);
+            if (strength) row[x] = glow[strength][row[x]];
+        }
+    }
+}
+
+void mark_walkable_edges(image &surfaces, const boundary &shape, vec2i origin, vec2i size)
+{
+    int left, top, right, bottom;
+    surfaces.GetClip(left, top, right, bottom);
+    for (int i = 0; i + 1 < shape.tot; ++i) {
+        const auto *points = shape.data + i * 2;
+        const int dx = int(points[2]) - points[0], dy = int(points[3]) - points[1];
+        // This is the downward-contact side used by the level's collision test.
+        if (shape.inside[i] || !dx || std::abs(dy) > std::abs(dx)) continue;
+        const int start = std::max({left, origin.x, origin.x + std::min(points[0], points[2])});
+        const int end = std::min({right, origin.x + size.x, origin.x + std::max(points[0], points[2]) + 1});
+        for (int x = start; x < end; ++x) {
+            const int floor = origin.y + points[1] + (x - origin.x - points[0]) * dy / dx;
+            // Follow the visible lip where the artwork and collision outline differ slightly.
+            for (int y = std::max({top + 1, origin.y, floor - 2});
+                 y < std::min({bottom, origin.y + size.y, floor + 4}); ++y) {
+                auto *row = surfaces.scan_line(y);
+                const int above = surfaces.scan_line(y - 1)[x];
+                if (row[x] == WallReflection && above != WallReflection && above != WalkableReflection) {
+                    row[x] = WalkableReflection;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void enhance_foreground_contrast(image &target, image &surfaces, palette &colors)
+{
+    int left, top, right, bottom;
+    target.GetClip(left, top, right, bottom);
+    static std::array<uint8_t, 256> edge_lift{}, surface_lift{}, ledge_lift{};
+    static std::array<std::array<uint8_t, 256>, 3> backdrop{};
+    static std::array<uint8_t, 768> previous{};
+    static bool ready = false;
+    const auto rgb = palette_rgb(colors);
+    if (!ready || rgb != previous) {
+        for (int i = 0; i < 256; ++i) {
+            const int r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
+            const int value = std::max({r, g, b});
+            // Preserve dark cutouts and lift the mid-tones of visible metal.
+            const int surface_boost = std::min({std::max(0, value - 40) / 5, 14, 255 - value});
+            const int edge_boost = std::min({value / 2, 38, 255 - value});
+            const int ledge_boost = std::min({value * 3 / 4, 62, 255 - value});
+            surface_lift[i] = surface_boost ? colors.find_closest(r + surface_boost, g + surface_boost, b + surface_boost) : i;
+            edge_lift[i] = edge_boost ? colors.find_closest(r + edge_boost, g + edge_boost, b + edge_boost) : i;
+            ledge_lift[i] = ledge_boost ? colors.find_closest(r + ledge_boost, g + ledge_boost, b + ledge_boost) : i;
+            const int luma = (r + 2 * g + b) / 4;
+            for (int step = 0; step < int(backdrop.size()); ++step) {
+                const int amount = 3 - step;
+                backdrop[step][i] = value ? colors.find_closest(
+                    (r * (16 - 2 * amount) + luma * amount) / 16,
+                    (g * (16 - 2 * amount) + luma * amount) / 16,
+                    (b * (16 - 2 * amount) + luma * amount) / 16) : i;
+            }
+        }
+        previous = rgb;
+        ready = true;
+    }
+
+    for (int y = top; y < bottom; ++y) {
+        auto *row = target.scan_line(y);
+        const auto *mask = surfaces.scan_line(y);
+        const auto *above = y > top ? surfaces.scan_line(y - 1) : mask;
+        for (int x = left; x < right; ++x) {
+            if (mask[x] == WalkableReflection) {
+                row[x] = ledge_lift[row[x]];
+                for (int distance = 1; distance <= 6 && y - distance >= top; ++distance) {
+                    const int behind = surfaces.scan_line(y - distance)[x];
+                    if (behind != BackgroundReflection && behind != DecorativeReflection) break;
+                    auto &pixel = target.scan_line(y - distance)[x];
+                    pixel = backdrop[(distance - 1) / 2][pixel];
+                }
+                continue;
+            }
+            if (mask[x] != WallReflection && mask[x] != DecorativeReflection) continue;
+            const bool edge = above[x] < WallReflection || (x > left && mask[x - 1] < WallReflection);
+            row[x] = (edge ? edge_lift : surface_lift)[row[x]];
+        }
+    }
+}
+
+void reflect_projectile_lights(image &target, image &surfaces, int world_x, int world_y, palette &colors,
+                               bool draw_halo)
 {
     if (!has_projectile_lights()) return;
     int left, top, right, bottom;
     target.GetClip(left, top, right, bottom);
 
-    static std::array<std::array<std::array<uint8_t, 256>, 8>, 4> projectile_blends;
+    static std::array<LightBlend, 4> projectile_blends, projectile_halos;
     static std::array<uint8_t, 768> previous{};
     static bool ready = false;
-    std::array<uint8_t, 768> current{};
-    for (int i = 0; i < 256; ++i) {
-        current[i * 3] = colors.red(i);
-        current[i * 3 + 1] = colors.green(i);
-        current[i * 3 + 2] = colors.blue(i);
-    }
+    const auto current = palette_rgb(colors);
     if (!ready || current != previous) {
         constexpr int hues[][3] = {{18, 2, 2}, {11, 3, 15}, {4, 9, 17}, {17, 8, 1}};
         for (size_t glow = 0; glow < projectile_blends.size(); ++glow) {
@@ -822,6 +1004,10 @@ void reflect_projectile_lights(image &target, image &surfaces, int world_x, int 
                         std::min(255, r + hue[0] * strength * response / 200),
                         std::min(255, g + hue[1] * strength * response / 200),
                         std::min(255, b + hue[2] * strength * response / 200));
+                    projectile_halos[glow][strength][i] = colors.find_closest(
+                        std::min(255, r + hue[0] * strength / 3),
+                        std::min(255, g + hue[1] * strength / 3),
+                        std::min(255, b + hue[2] * strength / 3));
                 }
             }
         }
@@ -841,22 +1027,131 @@ void reflect_projectile_lights(image &target, image &surfaces, int world_x, int 
         const float dx = float(x2) - x1, dy = float(y2) - y1;
         const float length_squared = dx * dx + dy * dy;
         const auto &table = projectile_blends[size_t(light.glow)];
+        const auto &halo = projectile_halos[size_t(light.glow)];
+        const int halo_radius = light.glow == ProjectileGlow::Rocket ? 6 : 4;
         for (int y = min_y; y < max_y; ++y) {
             auto *row = target.scan_line(y);
             const auto *surface = surfaces.scan_line(y);
             for (int x = min_x; x < max_x; ++x) {
-                if (!surface[x]) continue;
+                if (!surface[x] && !draw_halo) continue;
                 const float px = float(x) - x1, py = float(y) - y1;
                 const float t = length_squared > 0 ? std::clamp((px * dx + py * dy) / length_squared, 0.f, 1.f) : 0.f;
                 const float near_x = px - t * dx, near_y = py - t * dy;
-                const float falloff = 1.f - (near_x * near_x + near_y * near_y) / (radius * radius);
-                if (falloff > 0) {
-                    const int peak = surface[x] == WallReflection ? 7 : 2;
+                const float distance_squared = near_x * near_x + near_y * near_y;
+                const float falloff = 1.f - distance_squared / (radius * radius);
+                if (surface[x] && falloff > 0) {
+                    const int peak = surface[x] >= WallReflection ? 7 : 2;
                     const int strength = int(peak * falloff * falloff + 0.5f);
                     if (strength) row[x] = table[strength][row[x]];
                 }
+                if (draw_halo && distance_squared < halo_radius * halo_radius) {
+                    const float halo_falloff = 1.f - distance_squared / (halo_radius * halo_radius);
+                    const int strength = int(7.f * halo_falloff * halo_falloff);
+                    if (strength) row[x] = halo[strength][row[x]];
+                }
             }
         }
+    }
+}
+
+void draw_lava_lighting(image &target, image &surfaces, palette &colors,
+                        const std::vector<LavaSurface> &lava, uint32_t tick, bool embers)
+{
+    if (lava.empty()) return;
+    int left, top, right, bottom;
+    target.GetClip(left, top, right, bottom);
+    constexpr int side_reach = 12, rise = 22, below = 6;
+    int band_left = right, band_right = left, band_top = bottom, band_bottom = top;
+    for (const auto &pool : lava) {
+        if (pool.right + side_reach < left || pool.left - side_reach >= right ||
+            pool.y + below < top || pool.y - rise >= bottom)
+            continue;
+        band_left = std::min(band_left, std::max(left, pool.left - side_reach));
+        band_right = std::max(band_right, std::min(right, pool.right + side_reach + 1));
+        band_top = std::min(band_top, std::max(top, pool.y - rise));
+        band_bottom = std::max(band_bottom, std::min(bottom, pool.y + below + 1));
+    }
+    if (band_left >= band_right || band_top >= band_bottom) return;
+
+    const int width = band_right - band_left;
+    static std::vector<uint8_t> strengths;
+    strengths.assign(size_t(width) * (band_bottom - band_top), 0);
+    // Overlapping sprites make one strip. Use the strongest contribution so
+    // seams and dense pools don't get a brighter reflection.
+    for (const auto &pool : lava) {
+        const int start = std::max(band_left, pool.left - side_reach);
+        const int end = std::min(band_right, pool.right + side_reach + 1);
+        for (int y = std::max(band_top, pool.y - rise); y < std::min(band_bottom, pool.y + below + 1); ++y) {
+            const int vertical = pool.y - y;
+            const int reach = vertical >= 0 ? rise : below;
+            const int peak = (reach - std::abs(vertical)) * 7 / reach;
+            auto *row = strengths.data() + size_t(y - band_top) * width;
+            for (int x = start; x < end; ++x) {
+                const int distance = std::max({0, pool.left - x, x - pool.right});
+                const int strength = peak * (side_reach - distance) / side_reach;
+                auto &pixel = row[x - band_left];
+                pixel = std::max<int>(pixel, strength);
+            }
+        }
+    }
+
+    static LightBlend warm;
+    static std::array<uint8_t, 768> previous{};
+    static std::array<uint8_t, 3> ember_colors{};
+    static bool ready = false;
+    const auto rgb = palette_rgb(colors);
+    if (!ready || rgb != previous) {
+        for (int strength = 0; strength < int(warm.size()); ++strength) {
+            for (int i = 0; i < 256; ++i) {
+                const int r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
+                const int luma = (r + 2 * g + b) / 4;
+                const int energy = std::min(luma + 42, 128) * strength;
+                warm[strength][i] = luma && strength ? colors.find_closest(
+                    std::min(255, r + energy * 11 / 128),
+                    std::min(255, g + energy * 5 / 128),
+                    std::min(255, b + energy / 256)) : i;
+            }
+        }
+        ember_colors = {uint8_t(colors.find_closest(157, 40, 6)),
+                        uint8_t(colors.find_closest(219, 106, 23)),
+                        uint8_t(colors.find_closest(249, 177, 61))};
+        previous = rgb;
+        ready = true;
+    }
+    for (int y = band_top; y < band_bottom; ++y) {
+        auto *row = target.scan_line(y);
+        const auto *mask = surfaces.scan_line(y);
+        const auto *light = strengths.data() + size_t(y - band_top) * width;
+        for (int x = band_left; x < band_right; ++x) {
+            int strength = light[x - band_left];
+            if (!strength || mask[x] == NoReflection) continue;
+            if (mask[x] == BackgroundReflection || mask[x] == DecorativeReflection)
+                strength = (strength + 1) / 2;
+            row[x] = warm[strength][row[x]];
+        }
+    }
+
+    if (!embers) return;
+    for (const auto &pool : lava) {
+        const uint32_t period = 112 + (pool.seed >> 24) % 69;
+        const int age = (tick + (pool.seed >> 2) % period) % period;
+        if (age >= 20) continue;
+        const int drift = ((pool.seed & 1) ? 1 : -1) * age / 4;
+        const int x = pool.left + (pool.right - pool.left) / 2 + drift;
+        // Stock pools sit a few pixels into the floor artwork.
+        const int origin_y = pool.y - 4;
+        const int y = origin_y - age * 2 / 3;
+        if (x < left || x >= right || y < top || y >= bottom) continue;
+        bool blocked = false;
+        for (int yy = y; yy <= std::min(bottom - 1, origin_y); ++yy) {
+            const auto material = surfaces.scan_line(yy)[x];
+            if (material == WallReflection || material == WalkableReflection) {
+                blocked = true;
+                break;
+            }
+        }
+        if (!blocked)
+            target.scan_line(y)[x] = ember_colors[age >= 14 ? 0 : age >= 5 ? 1 : 2];
     }
 }
 
@@ -872,23 +1167,19 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
     if (width <= 0 || height <= 0) return;
 
     // Cache palette blends. The flash adds warm light while smoke softens the background.
-    using BlendTable = std::array<std::array<uint8_t, 256>, 8>;
-    static BlendTable warm, smoke, warm_fixture, cool_fixture;
+    static LightBlend warm, smoke, warm_fixture, cool_fixture, cool_glow;
     static std::array<uint8_t, 768> previous_palette{};
     static bool palette_ready = false;
     const auto prepare_blends = [&] {
-        std::array<uint8_t, 768> current_palette{};
-        for (int i = 0; i < 256; ++i) {
-            current_palette[3 * i] = colors.red(i);
-            current_palette[3 * i + 1] = colors.green(i);
-            current_palette[3 * i + 2] = colors.blue(i);
-        }
+        const auto current_palette = palette_rgb(colors);
         if (palette_ready && current_palette == previous_palette) return;
         for (int strength = 0; strength < 8; ++strength) {
             for (int i = 0; i < 256; ++i) {
                 const int r = colors.red(i), g = colors.green(i), b = colors.blue(i);
                 warm[strength][i] = colors.find_closest(std::min(255, r + strength * 12),
                     std::min(255, g + strength * 5), std::min(255, b + strength));
+                cool_glow[strength][i] = colors.find_closest(std::min(255, r + strength * 2),
+                    std::min(255, g + strength * 7), std::min(255, b + strength * 12));
                 // Shift the lit surface's colors in proportion to its brightness.
                 // Black stays black, and the level's brightness lookup still does the shading.
                 warm_fixture[strength][i] = colors.find_closest(std::min(255, r + r * strength / 23),
@@ -957,6 +1248,24 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
         }
     }
 
+    for (const auto *light = first_light_source; light; light = light->next) {
+        if (!light->environment_tint || light->type < 0 || light->type >= 9) continue;
+        const int radius = std::clamp(light->outer_radius / 4, 4, 10);
+        const int cx = left + light->x - world_x, cy = top + light->y - world_y;
+        if (cx + radius < left || cx - radius >= right || cy + radius < top || cy - radius >= bottom)
+            continue;
+        if (!blends_ready) {
+            prepare_blends();
+            blends_ready = true;
+        }
+        const int fixture_left = std::max(left, left + light->x1 - world_x);
+        const int fixture_top = std::max(top, top + light->y1 - world_y);
+        const int fixture_right = std::min(right, left + light->x2 - world_x + 1);
+        const int fixture_bottom = std::min(bottom, top + light->y2 - world_y + 1);
+        blend_light_disc(*target, fixture_left, fixture_top, fixture_right, fixture_bottom, cx, cy, radius, 4,
+                         light->type == 0 ? warm : cool_glow);
+    }
+
     for (const auto &burst : explosions) {
         const unsigned age = tick - burst.start;
         if (!burst.radius || age >= explosion_lifetime) continue;
@@ -968,18 +1277,10 @@ void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *loo
             blends_ready = true;
         }
         const auto blend_disc = [&](int px, int py, int radius, int strength, const auto &table) {
-            if (strength <= 0) return;
-            const int radius_squared = radius * radius;
-            for (int y = std::max(top, py - radius); y < std::min(bottom, py + radius + 1); ++y) {
-                auto *row = target->scan_line(y);
-                for (int x = std::max(left, px - radius); x < std::min(right, px + radius + 1); ++x) {
-                    const int dx = x - px, dy = y - py;
-                    const int blend = strength * (radius_squared - dx * dx - dy * dy) / radius_squared;
-                    if (blend > 0) row[x] = table[blend][row[x]];
-                }
-            }
+            if (strength > 0) blend_light_disc(*target, left, top, right, bottom, px, py, radius, strength, table);
         };
         if (age < 7) blend_disc(cx, cy, burst.radius, 7 - int(age), warm);
+        if (age < 4) blend_disc(cx, cy, std::clamp(burst.radius / 4, 4, 12), 4 - int(age), warm);
         if (age > 2) {
             for (int i = -1; i <= 1; ++i) {
                 blend_disc(cx + i * (4 + int(age) / 3), cy - int(age) - 3 * std::abs(i),

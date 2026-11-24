@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Abuse Modern brings the original side-scrolling action game to SDL3 with widescreen play, enhanced lighting, a redesigned HUD and dual-stick controls.">
+  <meta name="theme-color" content="#101215">
+  <title>Abuse Modern · SDL3 source port</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="releases.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <nav class="wrap" aria-label="Main navigation">
+      <a class="brand" href="#top">ABUSE <span>MODERN</span></a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#downloads">Downloads</a>
+        <a href="https://github.com/karapant/abuse-modern">GitHub</a>
+      </div>
+    </nav>
+  </header>
+  <main id="top">
+    <section class="hero" aria-labelledby="title">
+      <div class="wrap hero-content">
+        <p class="kicker">SDL3 source port</p>
+        <h1 id="title">ABUSE <span>MODERN</span></h1>
+        <p class="intro">The original side-scrolling action game with widescreen play, enhanced lighting, smoother motion, and dual-stick controls.</p>
+        <a class="button primary" href="#downloads">Get Abuse Modern</a>
+      </div>
+    </section>
+    <section class="wrap section" id="features" aria-labelledby="feature-title">
+      <h2 id="feature-title">What’s new</h2>
+      <figure class="comparison">
+        <a href="screenshots/enhancements-comparison.png">
+          <img src="screenshots/enhancements-comparison.png" width="1948" height="600" alt="The same corridor with enhancements off on the left and on on the right. The enhanced view shows a redesigned HUD, a brighter projectile trail and blue light on nearby terrain.">
+        </a>
+        <figcaption>The same corridor with enhancements off and on in an earlier build.</figcaption>
+      </figure>
+      <div class="features">
+        <article>
+          <h3>Lighting and weapon effects</h3>
+          <p>Warm and cool fixtures light the scenery. Nearby walls catch flashes and reflections, and weapons leave tapered beams and short trails.</p>
+        </article>
+        <article>
+          <h3>Widescreen and smoother motion</h3>
+          <p>Switch to a 640×360 view to see more of the level. The camera and objects interpolate at up to 60 frames per second. An optional pixel filter softens jagged edges.</p>
+        </article>
+        <article>
+          <h3>Modern HUD</h3>
+          <p>Health, ammo and weapon slots sit in a centered strip that stays easy to scan during play.</p>
+          <img class="hud" src="screenshots/hud-source.png" width="2172" height="724" loading="lazy" alt="The modern HUD artwork with a red health cross and eight weapon slots.">
+        </article>
+        <article>
+          <h3>Checkpoint feedback</h3>
+          <p>Save consoles light up as you approach, and the game confirms when your progress is saved.</p>
+          <a href="screenshots/checkpoint-glow.png">
+            <img src="screenshots/checkpoint-glow.png" width="864" height="498" loading="lazy" alt="The save console gradually lights up on approach and dims when the player moves away.">
+          </a>
+        </article>
+      </div>
+        <section class="menu-comparison" aria-labelledby="menu-title">
+          <h3 id="menu-title">Main menu before and after</h3>
+          <p>Abuse Modern gives New Game, Load Game, Settings, and other actions readable labels.</p>
+          <div class="menu-screenshots">
+            <figure class="comparison">
+              <a href="screenshots/main-menu-classic.png">
+                <img src="screenshots/main-menu-classic.png" width="320" height="200" loading="lazy" alt="The Abuse 0.8 title screen with a vertical strip of unlabeled icon buttons along the right side.">
+              </a>
+              <figcaption>Before · Abuse 0.8</figcaption>
+            </figure>
+            <figure class="comparison">
+              <a href="screenshots/main-menu-modern.png">
+                <img src="screenshots/main-menu-modern.png" width="320" height="200" loading="lazy" alt="The Abuse Modern title screen with a labeled list of main menu actions.">
+              </a>
+              <figcaption>After · Abuse Modern</figcaption>
+            </figure>
+          </div>
+        </section>
+    </section>
+    <section class="download-section" id="downloads" aria-labelledby="download-title">
+      <div class="wrap section">
+        <h2 id="download-title">Downloads</h2>
+        <div class="release-summary">
+          <p id="release-status" role="status">See GitHub Releases for published versions and packages.</p>
+          <a class="text-link" id="release-notes" hidden>Release notes</a>
+        </div>
+        <ul class="downloads" role="list">
+          <li data-package="windows-x86_64-setup.exe" data-platform="Windows x64">
+            <div class="download-platform">
+              <h3>Windows x64</h3>
+              <p>EXE installer <span data-size hidden></span></p>
+            </div>
+            <p class="download-install">Run Setup, then open Abuse Modern from the Start menu. The installer is unsigned.</p>
+            <div class="download-actions">
+              <a class="button" data-download href="https://github.com/karapant/abuse-modern/releases">View release</a>
+              <a class="text-link" data-checksum hidden>SHA-256</a>
+            </div>
+          </li>
+          <li data-package="linux-x86_64.tar.gz" data-platform="Linux x64">
+            <div class="download-platform">
+              <h3>Linux x64</h3>
+              <p>TAR.GZ archive <span data-size hidden></span></p>
+            </div>
+            <p class="download-install">Extract the archive and run <code>./play</code> from the extracted folder. Built on Ubuntu 24.04.</p>
+            <div class="download-actions">
+              <a class="button" data-download href="https://github.com/karapant/abuse-modern/releases">View release</a>
+              <a class="text-link" data-checksum hidden>SHA-256</a>
+            </div>
+          </li>
+          <li data-package="macos-arm64.dmg" data-platform="macOS Apple Silicon">
+            <div class="download-platform">
+              <h3>macOS Apple Silicon</h3>
+              <p>DMG disk image <span data-size hidden></span></p>
+            </div>
+            <p class="download-install">For Macs with an Apple chip. Open the disk image and run <strong>Play Abuse Modern.command</strong>.</p>
+            <div class="download-actions">
+              <a class="button" data-download href="https://github.com/karapant/abuse-modern/releases">View release</a>
+              <a class="text-link" data-checksum hidden>SHA-256</a>
+            </div>
+          </li>
+          <li data-package="macos-x86_64.dmg" data-platform="macOS Intel">
+            <div class="download-platform">
+              <h3>macOS Intel</h3>
+              <p>DMG disk image <span data-size hidden></span></p>
+            </div>
+            <p class="download-install">For Macs with an Intel processor. Open the disk image and run <strong>Play Abuse Modern.command</strong>.</p>
+            <div class="download-actions">
+              <a class="button" data-download href="https://github.com/karapant/abuse-modern/releases">View release</a>
+              <a class="text-link" data-checksum hidden>SHA-256</a>
+            </div>
+          </li>
+        </ul>
+        <p class="install" id="windows-build">You can also find the setup file in the <strong>windows-x86_64-installer</strong> artifact from the latest successful <a class="text-link" href="https://github.com/karapant/abuse-modern/actions/workflows/build.yml?query=branch%3Amain+is%3Asuccess">GitHub Actions build</a>.</p>
+        <p class="install">On first launch, use the launcher to download Abuse 0.8 game data or import it from an existing archive or folder.</p>
+        <a class="text-link" href="https://github.com/karapant/abuse-modern/releases">All releases</a>
+      </div>
+    </section>
+  </main>
+  <footer class="wrap">
+    <span>Abuse Modern · GPL-2.0-or-later</span>
+    <a href="https://github.com/karapant/abuse-modern">Source and build instructions</a>
+  </footer>
+</body>
+</html>

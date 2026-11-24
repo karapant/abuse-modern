@@ -14,6 +14,7 @@
 #endif
 
 #include <ctype.h>
+#include <cmath>
 #include <memory>
 #include <setjmp.h>
 #include <unistd.h>
@@ -63,7 +64,6 @@
 #include "chat.h"
 #include "demo.h"
 #include "netcfg.h"
-#include "ui/checkpoint_marker.h"
 
 #define SHIFT_RIGHT_DEFAULT 0
 #define SHIFT_DOWN_DEFAULT 30
@@ -208,7 +208,6 @@ bool Game::set_view_resolution(int preset)
     }
     mousex = xres / 2; mousey = yres / 2;
     wm->set_mouse_position(mousex, mousey);
-    sbar.need_refresh();
     need_refresh();
     return true;
 }
@@ -725,34 +724,34 @@ static void post_render()
   }
 }
 
-static void draw_checkpoint_markers(view *v, int world_x, int world_y, int scale)
+static void draw_checkpoint_lighting(view *v, int world_x, int world_y, int scale, int frame)
 {
     if (!game_settings.checkpoint_feedback || !v->focus || !v->local_player() ||
         !player_list || player_list->next || (dev & (EDIT_MODE | MAP_MODE)) ||
         !(dev & DRAW_PEOPLE_LAYER))
         return;
 
-    const uint8_t colors[] = {0, uint8_t(pal->find_closest(22, 23, 27)),
-        uint8_t(pal->find_closest(165, 108, 36)), uint8_t(pal->find_closest(206, 163, 89))};
+    const uint32_t tick = current_level->tick_counter();
+    const vec2i player = v->focus->render_position(frame, tick);
+    const float phase = (tick % 36 + float(frame) / frames_per_tick) * 6.2831853f / 36.f;
+    const float pulse = 0.94f + 0.06f * std::cos(phase);
+    screen->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
     for (auto *console = current_level->first_active_object(); console; console = console->next_active) {
         if (strcmp(object_names[console->otype], "RESTART_POSITION")) continue;
-        if (abs(console->x - v->focus->x) > 144 || abs(console->y - v->focus->y) > 96) continue;
+        const vec2i position = console->render_position(frame, tick);
+        const float dx = (position.x - player.x) / 144.f;
+        const float dy = (position.y - player.y) / 96.f;
+        const float proximity = 1.f - dx * dx - dy * dy;
+        if (proximity <= 0.f) continue;
 
-        const int x = v->cx1 + (console->x - world_x) * scale;
-        const int foot = v->cy1 + (console->y - world_y) * scale;
-        const int top = foot - console->picture()->Size().y * scale;
-        if (x < v->cx1 || x > v->cx2 || foot < v->cy1 || top > v->cy2) continue;
-
-        const int left = x - checkpoint_marker_size / 2;
-        const int y0 = std::max(v->cy1, top - checkpoint_marker_size - 2);
-        for (int row = 0; row < checkpoint_marker_size && y0 + row <= v->cy2; ++row) {
-            auto *dest = screen->scan_line(y0 + row);
-            for (int col = 0; col < checkpoint_marker_size; ++col) {
-                const int sx = left + col;
-                const auto pixel = checkpoint_marker[row * checkpoint_marker_size + col];
-                if (pixel && sx >= v->cx1 && sx <= v->cx2) dest[sx] = colors[pixel];
-            }
-        }
+        int32_t left, top, right, bottom;
+        console->picture_space(left, top, right, bottom);
+        const vec2i movement = position - vec2i(console->x, console->y);
+        const vec2i screen_position = vec2i(v->cx1, v->cy1) +
+            (vec2i(left - world_x, top - world_y) + movement) * scale;
+        const vec2i size((right - left + 1) * scale, (bottom - top + 1) * scale);
+        const float intensity = proximity * proximity * (3.f - 2.f * proximity) * pulse;
+        draw_save_console_glow(*screen, *pal, screen_position, size, intensity);
     }
 }
 
@@ -842,19 +841,35 @@ void Game::draw_map(view *v, int frame)
   screen->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
 
   clear_projectile_lights();
-  std::unique_ptr<image> reflective_surfaces;
+  const bool foreground_contrast = game_settings.enhanced_lighting && light_detail != POOR_DETAIL &&
+      (dev & DRAW_LIGHTS) && (dev & DRAW_FG_LAYER) && (dev & DRAW_BG_LAYER) &&
+      !(dev & (MAP_MODE | EDIT_MODE));
+  std::vector<LavaSurface> lava;
+  std::unique_ptr<image> terrain_mask;
   if (game_settings.enhanced_lighting && (dev & DRAW_LIGHTS) &&
       (dev & DRAW_PEOPLE_LAYER) && !(dev & MAP_MODE)) {
+    const auto tick = current_level->tick_counter();
     for (auto *object = current_level->first_active_object(); object; object = object->next_active) {
-      const vec2i sample = object->render_position(frame, current_level->tick_counter());
+      const vec2i sample = object->render_position(frame, tick);
       object->collect_projectile_light(sample.x, sample.y);
+      if (foreground_contrast && !strcmp(object_names[object->otype], "LAVA")) {
+        int32_t left, top, right, bottom;
+        object->picture_space(left, top, right, bottom);
+        const int inset = (right - left + 1) / 5;
+        // The luminous top row of the slanted sprite is shifted from its base.
+        if (object->direction > 0) left += inset;
+        else right -= inset;
+        const vec2i shift = sample - vec2i(object->x + current_vxadd, object->y + current_vyadd);
+        const uint32_t seed = uint32_t(object->x) * 73856093u ^ uint32_t(object->y) * 19349663u;
+        lava.push_back({left + shift.x, right + shift.x, top + shift.y + 2, seed});
+      }
     }
-    if (has_projectile_lights()) {
-      reflective_surfaces = std::make_unique<image>(screen->Size(), nullptr, 1);
-      reflective_surfaces->dirt_off();
-      reflective_surfaces->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
-      reflective_surfaces->clear(dev & DRAW_BG_LAYER ? BackgroundReflection : NoReflection);
-    }
+  }
+  if (foreground_contrast || has_projectile_lights()) {
+    terrain_mask = std::make_unique<image>(screen->Size(), nullptr, 1);
+    terrain_mask->dirt_off();
+    terrain_mask->SetClip(v->cx1, v->cy1, v->cx2 + 1, v->cy2 + 1);
+    terrain_mask->clear(dev & DRAW_BG_LAYER ? BackgroundReflection : NoReflection);
   }
 
   nxoff = xoff * bg_xmul / bg_xdiv;
@@ -1019,9 +1034,15 @@ void Game::draw_map(view *v, int frame)
           int fort_num = fgvalue(*cl);
           if(fort_num != BLACK)
           {
-            get_fg(fort_num)->im->PutImage(screen, vec2i(draw_x, draw_y));
-            if (reflective_surfaces)
-              get_fg(fort_num)->im->PutColor(reflective_surfaces.get(), vec2i(draw_x, draw_y), WallReflection);
+            const vec2i tile_position(draw_x, draw_y);
+            auto *tile = get_fg(fort_num);
+            tile->im->PutImage(screen, tile_position);
+            if (terrain_mask) {
+              const auto material = tile->points->tot ? WallReflection : DecorativeReflection;
+              tile->im->PutColor(terrain_mask.get(), tile_position, material);
+              if (foreground_contrast && !tile->damage)
+                mark_walkable_edges(*terrain_mask, *tile->points, tile_position, tile->im->Size());
+            }
 
         if(!(dev & EDIT_MODE) && !in_between)
             *cl|=0x8000;      // mark as has - been - seen
@@ -1033,8 +1054,12 @@ void Game::draw_map(view *v, int frame)
     }
   }
 
-  if (reflective_surfaces)
-    reflect_projectile_lights(*screen, *reflective_surfaces, xoff, yoff, *pal);
+  if (terrain_mask) {
+    if (foreground_contrast)
+      enhance_foreground_contrast(*screen, *terrain_mask, *pal);
+    draw_lava_lighting(*screen, *terrain_mask, *pal, lava, current_level->tick_counter(), true);
+    reflect_projectile_lights(*screen, *terrain_mask, xoff, yoff, *pal, !(dev & EDIT_MODE));
+  }
 
   int32_t ro = rand_on;
   if(dev & DRAW_PEOPLE_LAYER)
@@ -1055,7 +1080,7 @@ void Game::draw_map(view *v, int frame)
 
     if(dev & DRAW_FG_LAYER && rescan)
     {
-      if (reflective_surfaces) reflective_surfaces->clear(NoReflection);
+      if (terrain_mask) terrain_mask->clear(NoReflection);
       for(y = y1, draw_y = yo; y <= y2; y++, draw_y += yinc)
       {
     uint16_t *cl = current_level->get_fgline(y)+x1;
@@ -1070,8 +1095,14 @@ void Game::draw_map(view *v, int frame)
           get_fg(fort_num)->im->PutImage(screen, vec2i(draw_x, draw_y));
           else
           get_fg(fort_num)->im->PutFilled(screen, vec2i(draw_x, draw_y), 0);
-          if (reflective_surfaces)
-            get_fg(fort_num)->im->PutColor(reflective_surfaces.get(), vec2i(draw_x, draw_y), WallReflection);
+          if (terrain_mask) {
+            const vec2i tile_position(draw_x, draw_y);
+            auto *tile = get_fg(fort_num);
+            const auto material = tile->points->tot ? WallReflection : DecorativeReflection;
+            tile->im->PutColor(terrain_mask.get(), tile_position, material);
+            if (foreground_contrast && !tile->damage)
+              mark_walkable_edges(*terrain_mask, *tile->points, tile_position, tile->im->Size());
+          }
 
           if(!(dev & EDIT_MODE)) {
             if (!in_between) current_level->mark_seen(x, y);
@@ -1088,8 +1119,12 @@ void Game::draw_map(view *v, int frame)
     }
 
 
-    if (reflective_surfaces && (dev & DRAW_FG_LAYER) && rescan)
-      reflect_projectile_lights(*screen, *reflective_surfaces, xoff, yoff, *pal);
+    if (terrain_mask && (dev & DRAW_FG_LAYER) && rescan) {
+      if (foreground_contrast)
+        enhance_foreground_contrast(*screen, *terrain_mask, *pal);
+      draw_lava_lighting(*screen, *terrain_mask, *pal, lava, current_level->tick_counter(), false);
+      reflect_projectile_lights(*screen, *terrain_mask, xoff, yoff, *pal);
+    }
 
     if(dev & DRAW_FG_BOUND_LAYER)
     {
@@ -1192,20 +1227,13 @@ void Game::draw_map(view *v, int frame)
 
   post_render();
   if (state == RUN_STATE)
-    draw_checkpoint_markers(v, xoff, yoff, old_screen ? 2 : 1);
+    draw_checkpoint_lighting(v, xoff, yoff, old_screen ? 2 : 1, frame);
 
-  screen->SetClip(cx1, cy1, cx2 + 1, cy2 + 1);
-
-
-
-
-  if(playing_state(state))        // draw stuff outside the clipping region
-    v->draw_character_damage();
+  screen->SetClip(cx1, cy1, cx2, cy2);
 
   if(profiling())
     profile_update();
 
-  sbar.draw_update();
   if (in_between) {
     v->last_x = camera.x;
     v->last_y = camera.y;
@@ -1657,6 +1685,7 @@ void Game::update_screen(int frame)
       if(frame == frames_per_tick && interpolate_draw && (dev & EDIT_MODE))
       {
             draw_map(f, frames_per_tick / 2);
+        sbar.redraw(screen);
         wm->flush_screen();
       }
           draw_map(f, frame);
@@ -1673,6 +1702,9 @@ void Game::update_screen(int frame)
     }
 
     show_time();
+    // Composite the complete HUD after the world, including interpolated frames.
+    if (playing_state(state))
+      sbar.draw_update();
   }
 
   if(state == RUN_STATE && cache.prof_is_on())
@@ -1959,25 +1991,7 @@ void Game::get_input()
                             } break;
                             case EV_RESIZE:
                             {
-                                view *v;
-                                for(v = first_view; v; v = v->next)  // see if any views need to change size
-                                {
-                                    if(v->local_player())
-                                    {
-                                        int w = (xres - 10)/(small_render ? 2 : 1);
-                                        int h = (yres - 10)/(small_render ? 2 : 1);
-
-                                        v->suggest.send_view = 1;
-                                        v->suggest.cx1 = 5;
-                                        v->suggest.cx2 = 5 + w;
-                                        v->suggest.cy1 = 5;
-                                        v->suggest.cy2 = 5 + h;
-                                        v->suggest.pan_x = v->pan_x;
-                                        v->suggest.pan_y = v->pan_y;
-                                        v->suggest.shift_down = v->shift_down;
-                                        v->suggest.shift_right = v->shift_right;
-                                    }
-                                }
+                                recalc_local_view_space();
                                 draw();
                             } break;
                             case EV_REDRAW:

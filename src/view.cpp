@@ -56,10 +56,7 @@ view::~view()
     sbar.associate(NULL);
 
   if (total_weapons)
-  {
     free(weapons);
-    free(last_weapons);
-  }
 }
 
 
@@ -103,10 +100,7 @@ void view::give_weapon(int type)
     return ;
   }
   if (weapons[type]==-1)
-  {
     weapons[type]=0;
-    sbar.need_refresh();
-  }
 }
 
 int view::weapon_total(int type)
@@ -275,9 +269,7 @@ view::view(game_object *Focus, view *Next, int number)
   if (total_weapons)
   {
     weapons=(int32_t *)malloc(total_weapons*sizeof(int32_t));
-    last_weapons=(int32_t *)malloc(total_weapons*sizeof(int32_t));
     memset(weapons,0xff,total_weapons*sizeof(int32_t));   // set all to -1
-    memset(last_weapons,0xff,total_weapons*sizeof(int32_t));   // set all to -1
   }
 
   if (total_weapons)
@@ -286,7 +278,6 @@ view::view(game_object *Focus, view *Next, int number)
     sbar.associate(this);
   set_tint(number);
   set_team(-1);
-  sbar.need_refresh();
 }
 
 int32_t view::x_center()
@@ -304,23 +295,6 @@ int32_t view::y_center()
   else
     return focus->y;
 }
-
-void view::draw_character_damage()
-{
-  if (focus && drawable())
-  {
-    if (last_hp!=focus->hp()) draw_hp();
-    int i;
-    for (i=0; i<total_weapons; i++)
-      if (weapons[i]!=last_weapons[i])
-      {
-    last_weapons[i]=weapons[i];
-        sbar.draw_ammo(screen,i,weapons[i],current_weapon==i);
-      }
-  }
-}
-
-
 
 uint16_t make_sync()
 {
@@ -546,8 +520,6 @@ int view::process_input(char cmd, uint8_t *&pk)   // return 0 if something went 
       memcpy(&x,pk,4);  pk+=4;
       current_weapon=lltl(x);
 
-      if (local_player())
-        sbar.need_refresh();
       suggest.send_weapon_change=0;
       return 1;
     } break;
@@ -731,20 +703,6 @@ int view::handle_event(event &ev)
     return 0;
 }
 
-void view::draw_hp()
-{
-    if (focus)
-    {
-        int h = focus->hp();
-        last_hp=h;
-        sbar.draw_health( screen, focus->hp() );
-    }
-    else
-    {
-        sbar.draw_health( screen, 0 );
-    }
-}
-
 int view::drawable()
 {
     return local_player();
@@ -908,7 +866,6 @@ void view::reset_player()
     focus->set_tint(_tint);
     focus->set_team(_team);
     memset(weapons,0xff,total_weapons*sizeof(int32_t));
-    memset(last_weapons,0xff,total_weapons*sizeof(int32_t));
 
     shift_down=SHIFT_DOWN_DEFAULT;
     shift_right=SHIFT_RIGHT_DEFAULT;
@@ -1099,7 +1056,7 @@ int32_t view::set_view_var_value(int num, int32_t x)
     case V_PLAYER_NUMBER : { player_number=x; if (local_player()) sbar.associate(this); }  break;
 
     case V_DRAW_SOLID : draw_solid=x; break;
-    case V_CURRENT_WEAPON : { current_weapon=x; sbar.need_refresh(); } break;
+    case V_CURRENT_WEAPON : current_weapon=x; break;
     case V_X_SUGGESTION : x_suggestion=x; break;
     case V_Y_SUGGESTION : y_suggestion=x; break;
     case V_B1_SUGGESTION : b1_suggestion=x; break;

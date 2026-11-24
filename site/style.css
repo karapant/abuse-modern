@@ -1,0 +1,102 @@
+:root {
+  color-scheme: dark;
+  --background: #101215;
+  --panel: #171a1e;
+  --border: #383d43;
+  --text: #f3f0e9;
+  --muted: #c2c4c6;
+  --accent: #ffb645;
+  font-family: system-ui, sans-serif;
+  background: var(--background);
+  color: var(--text);
+}
+* { box-sizing: border-box; }
+body { margin: 0; line-height: 1.6; }
+a { color: inherit; }
+a:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+a:hover { color: var(--accent); }
+img { display: block; max-width: 100%; height: auto; }
+.wrap { width: min(72rem, calc(100% - 3rem)); margin-inline: auto; }
+.masthead { background: #101215; border-bottom: 1px solid var(--border); }
+nav, footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem 2rem; }
+nav { min-height: 4.25rem; padding-block: .8rem; }
+nav a { text-decoration: none; }
+.nav-links { display: flex; flex-wrap: wrap; gap: .5rem 1.6rem; }
+.brand, .kicker { font: 700 .95rem/1.2 ui-monospace, monospace; letter-spacing: .11em; }
+.brand span, .hero h1 span, .kicker { color: var(--accent); }
+.hero {
+  display: grid;
+  align-items: center;
+  min-height: 31rem;
+  border-bottom: 1px solid var(--border);
+  background-color: #121517;
+  background-image: linear-gradient(90deg, #101215 8%, #101215d9 36%, #10121520 76%), url("screenshots/enhancements-comparison.png");
+  background-position: center, right 28%;
+  background-size: cover, max(1800px, 175vw) auto;
+  background-repeat: no-repeat;
+}
+.hero-content { padding-block: 4rem; }
+.kicker { text-transform: uppercase; margin: 0 0 1.2rem; }
+h1, h2, h3 { line-height: 1.05; margin: 0; }
+h1, h2 { font-family: "Arial Black", system-ui, sans-serif; font-weight: 950; letter-spacing: -.055em; }
+h1 { font-size: clamp(3.6rem, 10vw, 8.4rem); }
+h1 span { display: block; }
+h2 { font-size: clamp(2.4rem, 5.3vw, 4.5rem); margin-bottom: 1.3rem; }
+h3 { font-size: 1.3rem; }
+.intro { max-width: 28rem; font-size: 1.15rem; margin-block: 1.35rem 1.75rem; }
+.button {
+  display: inline-block;
+  padding: .7rem 1.1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-weight: 750;
+  text-decoration: none;
+}
+.button:hover { border-color: var(--accent); }
+.button.primary { background: var(--accent); color: #17120b; border: 1px solid var(--accent); }
+.button.primary:hover { background: #ffd085; }
+.section { padding-block: clamp(2.8rem, 7vw, 5rem); }
+.comparison { margin: 0; }
+.comparison a { display: block; padding: .35rem; background: #15191d; border: 1px solid var(--border); }
+.comparison a:hover { border-color: var(--accent); }
+.comparison img { width: 100%; }
+figcaption { margin-top: .6rem; color: var(--muted); }
+.features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 2rem; margin-top: 2rem; }
+.features article { border-top: 2px solid #725129; padding-top: 1.15rem; }
+.features p, .install, #release-status { color: var(--muted); max-width: 58ch; }
+.hud { width: 100%; background: black; }
+.menu-comparison { margin-top: 3rem; }
+.menu-comparison h3 { font-size: 1.75rem; }
+.menu-comparison p { color: var(--muted); }
+.menu-screenshots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.menu-screenshots img { image-rendering: pixelated; }
+.download-section { background: #1b1b1b; border-block: 1px solid var(--border); }
+.release-summary { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1.25rem; }
+.release-summary p { margin: 0; }
+.downloads { list-style: none; padding: 0; margin-block: 1.5rem; border-top: 1px solid var(--border); }
+.downloads li {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: .65rem 1.5rem;
+  padding: 1.1rem .75rem;
+  border-bottom: 1px solid var(--border);
+}
+.downloads p { margin: 0; color: var(--muted); }
+.download-platform p { margin-top: .35rem; font-size: .95rem; }
+.download-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1rem; }
+.download-actions .button { min-width: 8rem; text-align: center; }
+.text-link { color: var(--accent); text-underline-offset: .22em; }
+footer { min-height: 5.5rem; padding-block: 1.2rem; color: var(--muted); font-size: .9rem; }
+@media (max-width: 48rem) {
+  .downloads li { grid-template-columns: minmax(0, 1fr) auto; }
+  .download-install { grid-column: 1 / -1; grid-row: 2; }
+  .hero { min-height: 26rem; }
+}
+@media (max-width: 34rem) {
+  .wrap { width: calc(100% - 2rem); }
+  .features, .menu-screenshots { grid-template-columns: 1fr; }
+  .downloads li { grid-template-columns: 1fr; padding-inline: 0; }
+  .hero { background-image: linear-gradient(90deg, #101215f5, #10121582), url("screenshots/enhancements-comparison.png"); }
+  .hero-content { padding-block: 3rem; }
+}

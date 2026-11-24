@@ -21,8 +21,8 @@ class view;
 class status_bar
 {
   view *v;
-  char need_rf,changed_cursor;
-  int icon_in_selection,currently_selected_weapon;
+  char changed_cursor;
+  int icon_in_selection;
 
   int bweap[TOTAL_WEAPONS],   // bright weap image
       dweap[TOTAL_WEAPONS],   // dark
@@ -33,6 +33,8 @@ class status_bar
 
   void area(int &x1, int &y1, int &x2, int &y2);
   void draw_num(image *screen, int x, int y, int num, int *offset);
+  void draw_health(image *screen, int amount);
+  void draw_ammo(image *screen, int weapon_num, int amount, int light);
   int mouse_in_area();
   public :
   status_bar();
@@ -42,9 +44,6 @@ class status_bar
   void redraw(image *screen);
 
   void step();
-  void draw_health(image *screen,int amount);
-  void draw_ammo(image *screen, int weapon_num, int amount, int light);
-  void need_refresh() { need_rf=1; }
   void draw_update();
 };
 

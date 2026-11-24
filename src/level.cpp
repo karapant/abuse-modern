@@ -1799,20 +1799,14 @@ int level::load_player_info(bFILE *fp, spec_directory *sd, object_node *save_lis
       {
         int32_t x=fp->read_uint32();
         if (i<total_weapons)
-        {
           v->weapons[i]=x;
-          v->last_weapons[i]=x;
-        }
       }
     }
       }
     }  else
     {
       for (v=player_list; v; v=v->next)
-      {
-    memset(v->last_weapons,0xff,total_weapons*sizeof(int32_t));
     memset(v->weapons,0xff,total_weapons*sizeof(int32_t));
-      }
     }
 
     se=sd->find("player_names");

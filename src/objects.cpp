@@ -29,9 +29,11 @@
 #include "sdlport/preferences.h"
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include "dprint.h"
 #include "clisp.h"
 #include "lisp_gc.h"
+#include "level.h"
 #include "profile.h"
 
 char **object_names;
@@ -674,12 +676,12 @@ struct ProjectileColors
     vec3i tail, rim, core;
 };
 
-static void projectile_line(vec2i from, vec2i to, const vec3i &rgb)
+static void draw_palette_line(vec2i from, vec2i to, const vec3i &rgb)
 {
     screen->line(from.x, from.y, to.x, to.y, pal->find_closest(rgb.x, rgb.y, rgb.z));
 }
 
-static bool projectile_visible(vec2i from, vec2i to, int margin)
+static bool segment_visible(vec2i from, vec2i to, int margin)
 {
     int left, top, right, bottom;
     screen->GetClip(left, top, right, bottom);
@@ -708,13 +710,13 @@ static bool draw_enhanced_beam(const game_object &object, const char *name, LSym
     const vec2i to = vec2i(object.x, object.y) - scroll;
     const vec2i span = to - from;
     if (std::abs(span.x) > 512 || std::abs(span.y) > 512) return false;
-    if (!projectile_visible(from, to, 1)) return true;
+    if (!segment_visible(from, to, 1)) return true;
     const vec2i shoulder = from + span / 3;
     const vec2i edge = std::abs(span.x) >= std::abs(span.y) ? vec2i(0, 1) : vec2i(1, 0);
-    projectile_line(from, shoulder, colors.tail);
-    projectile_line(shoulder + edge, to + edge, colors.rim);
-    projectile_line(shoulder - edge, to - edge, colors.rim);
-    projectile_line(shoulder, to, colors.core);
+    draw_palette_line(from, shoulder, colors.tail);
+    draw_palette_line(shoulder + edge, to + edge, colors.rim);
+    draw_palette_line(shoulder - edge, to - edge, colors.rim);
+    draw_palette_line(shoulder, to, colors.core);
     return true;
 }
 
@@ -739,22 +741,195 @@ static void draw_projectile_trail(game_object &object, const char *name)
     if (!speed) return;
     const vec2i body(object.x - current_vxadd, object.y - current_vyadd - object.picture()->Size().y / 2);
     const vec2i tip = body - velocity * length / speed;
-    if (!projectile_visible(body, tip, 0)) return;
+    if (!segment_visible(body, tip, 0)) return;
     const vec2i middle = (tip + body) / 2;
-    projectile_line(tip, middle, colors.tail);
-    projectile_line(middle, body, colors.rim);
-    projectile_line((middle + body) / 2, body, colors.core);
+    draw_palette_line(tip, middle, colors.tail);
+    draw_palette_line(middle, body, colors.rim);
+    draw_palette_line((middle + body) / 2, body, colors.core);
+}
+
+static bool draw_platform_indicator(game_object &platform, const char *name)
+{
+    const int links = platform.total_objects();
+    if (platform.state != running || links < 2 || links > 3 ||
+        platform.fade_count() || platform.morph_status()) return false;
+    if (links == 3 && !platform.get_object(2)->aistate()) return false;
+
+    // Follow the lamp recesses in the stock sprites and the red deck's front trim.
+    struct Lamp { int x, y, width; };
+    static constexpr Lamp small_lamps[] = {{22, 12, 5}, {28, 12, 5}, {34, 12, 5}};
+    static constexpr Lamp big_lamps[] = {
+        {74, 1, 6}, {78, 5, 6}, {82, 9, 6}, {86, 13, 6}, {90, 17, 6}, {94, 29, 7}
+    };
+    static constexpr Lamp red_lamps[] = {{18, 16, 6}, {26, 16, 6}};
+    const bool small = !strcmp(name, "SMART_PLAT_SMALL");
+    const bool red = !strcmp(name, "SMART_PLAT_RED");
+    const vec2i expected_size = small ? vec2i(60, 15) : red ? vec2i(50, 70) : vec2i(117, 44);
+    auto *base = red ? platform.picture() : figures[platform.otype]->get_sequence(stopped)->get_frame(0, platform.direction);
+    if (base->Size() != expected_size || platform.picture()->Size() != expected_size) return false;
+
+    int32_t left, top, right, bottom;
+    platform.picture_space(left, top, right, bottom);
+    const vec2i origin(left - current_vxadd, top - current_vyadd);
+    if (!segment_visible(origin, origin + expected_size - vec2i(1), 0)) return true;
+
+    int vertical_direction = 0;
+    if (platform.aistate() == 3 && platform.aitype() <= 1) {
+        // In platform_ai state 3 the current mode is the departure link.
+        const auto *destination = platform.get_object(1 - platform.aitype());
+        const auto *departure = platform.get_object(platform.aitype());
+        vertical_direction = (destination->y > departure->y) - (destination->y < departure->y);
+    }
+    if (red && !vertical_direction) return false;
+    const vec3i lamp_color = vertical_direction < 0 ? vec3i(30, 255, 83) :
+                             vertical_direction > 0 ? vec3i(179, 7, 0) : vec3i(113, 121, 128);
+    base->PutImage(screen, origin);
+    int clip_left, clip_top, clip_right, clip_bottom;
+    screen->GetClip(clip_left, clip_top, clip_right, clip_bottom);
+    const Lamp *lamps = small ? small_lamps : red ? red_lamps : big_lamps;
+    const size_t count = small ? std::size(small_lamps) : red ? std::size(red_lamps) : std::size(big_lamps);
+    for (size_t i = 0; i < count; ++i) {
+        const auto &lamp = lamps[i];
+        const int x = origin.x + (platform.direction > 0 ? lamp.x : expected_size.x - lamp.x - lamp.width);
+        const int lamp_y = origin.y + lamp.y;
+        // Blend a bright core and a dim reflection into the adjacent metal.
+        const int last_y = lamp_y + (vertical_direction != 0);
+        for (int y = std::max(lamp_y, clip_top); y <= std::min(last_y, clip_bottom - 1); ++y) {
+            auto *row = screen->scan_line(y);
+            for (int p = std::max(x, clip_left); p < std::min(x + lamp.width, clip_right); ++p) {
+                const bool rim = p == x || p == x + lamp.width - 1;
+                const int brightness = !vertical_direction ? 2 : y != lamp_y ? 3 : rim ? 6 : 10;
+                const int c = row[p];
+                row[p] = pal->find_closest((pal->red(c) * (10 - brightness) + lamp_color.x * brightness) / 10,
+                                           (pal->green(c) * (10 - brightness) + lamp_color.y * brightness) / 10,
+                                           (pal->blue(c) * (10 - brightness) + lamp_color.z * brightness) / 10);
+            }
+        }
+    }
+    return true;
+}
+
+static void draw_force_field_current(game_object &field)
+{
+    // Match the stock Lisp draw function's activation and floor position.
+    if (field.total_objects() && !field.get_object(0)->aistate()) return;
+    const auto *type = figures[field.otype];
+    int floor = field.y;
+    for (int i = 0; i < type->tiv; ++i) {
+        if (type->vars[i] && !strcmp(lstring_value(static_cast<LSymbol *>(type->vars[i])->GetName()), "end_y")) {
+            floor = field.lvars[type->var_index[i]];
+            break;
+        }
+    }
+    const int height = floor - field.y;
+    if (height < 4) return;
+    const vec2i top(field.x - current_vxadd, field.y - current_vyadd);
+    const vec2i bottom(top.x, top.y + height);
+    if (!segment_visible(top, bottom, 4)) return;
+
+    // Adjacent emitters have different phases so a curtain stays readable in motion.
+    const uint32_t phase = current_level->tick_counter() + uint32_t(field.x) / 2;
+    const int pulse = 7 - std::abs(int(phase % 14) - 7);
+    const vec3i endpoint(86 + 9 * pulse, 128 + 9 * pulse, 180 + 8 * pulse);
+    draw_palette_line(top - vec2i(2, 0), top + vec2i(2, 0), endpoint);
+    draw_palette_line(bottom - vec2i(2, 0), bottom + vec2i(2, 0), endpoint);
+    const uint8_t tail_color = pal->find_closest(87, 139, 195);
+    const uint8_t head_color = pal->find_closest(145, 205, 248);
+    for (int offset = int((phase * 2) % 26); offset < height; offset += 26) {
+        const vec2i head(top.x + ((offset / 26) % 2 ? -2 : 2), top.y + offset);
+        const int tail_y = top.y + std::max(0, offset - 4);
+        screen->line(head.x, tail_y, head.x, head.y, tail_color);
+        screen->line(head.x, head.y, head.x, head.y, head_color);
+    }
+}
+
+static int turret_script_value(const game_object &gun, const char *name, int fallback)
+{
+    const auto *type = figures[gun.otype];
+    for (int i = 0; i < type->tiv; ++i) {
+        auto *symbol = static_cast<LSymbol *>(type->vars[i]);
+        if (symbol && !strcmp(lstring_value(symbol->GetName()), name))
+            return gun.lvars[type->var_index[i]];
+    }
+    return fallback;
+}
+
+static int track_gun_countdown(game_object &gun, int angle, const game_object &target)
+{
+    if (gun.total_objects() && !gun.get_object(0)->aistate()) return -1;
+    int opening_ticks = 0;
+    auto *state_name = LSymbol::Find("opening");
+    if (state_name && item_type(state_name->GetValue()) == L_NUMBER &&
+        gun.state == lnumber_value(state_name->GetValue()))
+        opening_ticks = gun.total_frames() - gun.current_frame - 1;
+
+    const int reload = turret_script_value(gun, "fire_delay_left", -1);
+    const int pause = turret_script_value(gun, "continue_time_left", -1);
+    const int speed = turret_script_value(gun, "track_speed", -1);
+    if (reload < 0 || pause < 0 || speed < 0 || reload > 2 || pause > 2) return -1;
+    const int wait = opening_ticks + reload + pause;
+    if (wait > 2) return -1;
+
+    // Predict the next few stock aiming steps for a target that holds position.
+    const int target_angle = lisp_atan2(gun.y - target.y + 8, target.x - gun.x);
+    const int start = turret_script_value(gun, "track_start_angle", -1);
+    const int end = turret_script_value(gun, "track_end_angle", -1);
+    for (int countdown = wait; countdown <= 2; ++countdown) {
+        const int clockwise = (angle - target_angle + 360) % 360;
+        const int step = std::min({clockwise, 360 - clockwise, speed});
+        if (step < 5) return countdown;
+        const int next = (angle + (clockwise > 180 ? step : -step) + 360) % 360;
+        if (next < std::min(start, end) || next > std::max(start, end)) break;
+        angle = next;
+    }
+    return -1;
+}
+
+static void draw_turret_windup(game_object &gun, bool spray)
+{
+    if (the_game->state != RUN_STATE || !current_view || !current_view->focus ||
+        gun.state == stopped || !gun.hp()) return;
+    auto *ai = static_cast<LSymbol *>(figures[gun.otype]->get_fun(OFUN_AI));
+    if (!ai || strcmp(lstring_value(ai->GetName()), spray ? "spray_gun_ai" : "track_ai")) return;
+    const auto *target = current_level->attacker(&gun);
+    const int angle = turret_script_value(gun, spray ? "spray.angle" : "angle", -1);
+    if (angle < 0 || angle >= 360) return;
+
+    int countdown;
+    if (spray) {
+        if ((gun.aistate() != 3 && gun.aistate() != 4) ||
+            std::abs(gun.x - target->x) >= 450 || std::abs(gun.y - target->y) >= 400)
+            return;
+        // spray_fire runs as soon as state_time exceeds the authored delay.
+        const int delay = turret_script_value(gun, "spray.fire_delay", -1);
+        if (delay < 0) return;
+        countdown = std::clamp(delay - int(gun.aistate_time()), -1, 2) + 1;
+    } else {
+        countdown = track_gun_countdown(gun, angle, *target);
+    }
+    if (countdown < 0 || countdown > 2) return;
+
+    // Follow the firing axis and place the glow just inside the projectile spawn point.
+    const int muzzle_x = gun.x + ((lisp_cos(angle) >> 8) * (spray ? 16 : 15) >> 8);
+    const int muzzle_y = gun.y - (spray ? 21 : 15) - ((lisp_sin(angle) >> 8) * (spray ? 18 : 12) >> 8);
+    draw_turret_charge(*screen, *pal, vec2i(muzzle_x - current_vxadd, muzzle_y - current_vyadd), 3 - countdown);
 }
 
 void game_object::draw()
 {
   auto *draw_fun = static_cast<LSymbol *>(figures[otype]->get_fun(OFUN_DRAW));
+  const char *name = object_names[otype];
   if (game_settings.enhanced_projectiles && pal)
   {
-    const char *name = object_names[otype];
     if (draw_enhanced_beam(*this, name, draw_fun)) return;
     draw_projectile_trail(*this, name);
   }
+  const bool enhanced_lighting = game_settings.enhanced_lighting && pal && current_level && !(dev & EDIT_MODE);
+  if (enhanced_lighting && !draw_fun &&
+      (!strcmp(name, "SMART_PLAT_SMALL") || !strcmp(name, "SMART_PLAT_BIG") || !strcmp(name, "SMART_PLAT_RED")) &&
+      draw_platform_indicator(*this, name))
+    return;
+
   if (draw_fun)
   {
     current_object=this;
@@ -777,6 +952,12 @@ void game_object::draw()
     restore_heap(m,TMP_SPACE);
 
   } else drawer();
+
+  if (enhanced_lighting && draw_fun && !strcmp(name, "FORCE_FIELD") &&
+      !strcmp(lstring_value(draw_fun->GetName()), "ff_draw"))
+    draw_force_field_current(*this);
+  if (enhanced_lighting && (!strcmp(name, "SPRAY_GUN") || !strcmp(name, "TRACK_GUN")))
+    draw_turret_windup(*this, !strcmp(name, "SPRAY_GUN"));
 }
 
 

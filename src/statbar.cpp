@@ -36,10 +36,8 @@ status_bar sbar;
 status_bar::status_bar()
 {
   v=NULL;
-  need_rf=1;
   changed_cursor=0;
   icon_in_selection=-1;  // the weapon the mouse cursor is on top of, -1 if none
-  currently_selected_weapon=-1;
 }
 
 // defined in dev.c
@@ -130,13 +128,22 @@ static image *hud_skin()
 
 void status_bar::redraw(image *screen)
 {
-    need_rf = 0;
     if (!v || !total_weapons || !playing_state(the_game->state)) return;
     int sx, sy, right, bottom; area(sx, sy, right, bottom);
+    if (sx >= right || sy >= bottom) return;
+    int clip_left, clip_top, clip_right, clip_bottom;
+    screen->GetClip(clip_left, clip_top, clip_right, clip_bottom);
+    screen->SetClip(0, 0, screen->Size().x, screen->Size().y);
     const int scale = small_render ? 2 : 1;
+    image *panel = game_settings.modern_hud ? hud_skin() : cache.img(sbar);
+    if (scale == 1)
+        panel->put_image(screen, sx, sy);
+    else
+        scale_put(panel, screen, sx, sy, right - sx, bottom - sy);
+    const int health = v->focus ? v->focus->hp() : 0;
+    if (v->focus) v->last_hp = health;
+    draw_health(screen, health);
     if (!game_settings.modern_hud) {
-        scale_put(cache.img(sbar), screen, sx, sy, right - sx, bottom - sy);
-        draw_health(screen, v->focus ? v->focus->hp() : 0);
         for (int i = 0; i < std::min(TOTAL_WEAPONS, total_weapons); ++i) {
             if (!v->has_weapon(i)) continue;
             const int left = sx + (40 + i * 34) * scale;
@@ -153,23 +160,23 @@ void status_bar::redraw(image *screen)
                                 highlight->Size().x * scale, highlight->Size().y * scale);
             }
         }
-        return;
-    }
-    scale_put(hud_skin(), screen, sx, sy, hud_width * scale, hud_height * scale);
-    draw_health(screen, v->focus ? v->focus->hp() : 0);
-    const int accent = pal->find_closest(240, 169, 66), muted = pal->find_closest(62, 68, 73);
-    for (int i = 0; i < std::min(TOTAL_WEAPONS, total_weapons); ++i) {
-        const int left = sx + (hud_health_width + i * hud_slot_width) * scale;
-        if (!v->has_weapon(i)) {
-            screen->bar(left + 4 * scale, sy + 8 * scale, left + 32 * scale, sy + 29 * scale, pal->find_closest(13, 16, 19));
-            screen->line(left + 16 * scale, sy + 18 * scale, left + 24 * scale, sy + 18 * scale, muted);
-        } else {
-            draw_ammo(screen, i, std::clamp(v->weapon_total(i), 0, 999), v->current_weapon == i);
+    } else {
+        const int accent = pal->find_closest(240, 169, 66), muted = pal->find_closest(62, 68, 73);
+        const int empty = pal->find_closest(13, 16, 19);
+        for (int i = 0; i < std::min(TOTAL_WEAPONS, total_weapons); ++i) {
+            const int left = sx + (hud_health_width + i * hud_slot_width) * scale;
+            if (!v->has_weapon(i)) {
+                screen->bar(left + 4 * scale, sy + 8 * scale, left + 32 * scale, sy + 29 * scale, empty);
+                screen->line(left + 16 * scale, sy + 18 * scale, left + 24 * scale, sy + 18 * scale, muted);
+            } else {
+                draw_ammo(screen, i, v->weapon_total(i), v->current_weapon == i);
+            }
+            if (v->current_weapon == i || icon_in_selection == i)
+                screen->rectangle(left + scale, sy + scale, left + (hud_slot_width - 2) * scale, bottom - 2 * scale,
+                    v->current_weapon == i ? accent : muted);
         }
-        if (v->current_weapon == i || icon_in_selection == i)
-            screen->rectangle(left + scale, sy + scale, left + (hud_slot_width - 2) * scale, bottom - 2 * scale,
-                v->current_weapon == i ? accent : muted);
     }
+    screen->SetClip(clip_left, clip_top, clip_right, clip_bottom);
 }
 
 void status_bar::area(int &x1, int &y1, int &x2, int &y2)
@@ -277,8 +284,7 @@ void status_bar::draw_update()
       changed_cursor=0;
     }
 
-    if (need_rf)
-      redraw(screen);
+    redraw(screen);
   }
 }
 
@@ -318,11 +324,8 @@ void status_bar::step()
     const int slot_width = game_settings.modern_hud ? hud_slot_width : 34;
     const int new_target = std::clamp((mx - first_slot) / slot_width, 0, std::min(TOTAL_WEAPONS, total_weapons) - 1);
 
-    if (v->has_weapon(new_target) && new_target!=icon_in_selection)
-    {
+    if (v->has_weapon(new_target))
       icon_in_selection=new_target;
-      need_refresh();
-    }
 
     if (last_demo_mbut==2 && icon_in_selection!=v->current_weapon &&
     icon_in_selection!=-1) // the user requested a weapon change
@@ -333,22 +336,8 @@ void status_bar::step()
 
   } else
   {
-    if (icon_in_selection!=-1)
-    {
-      icon_in_selection=-1;
-      need_refresh();
-    }
+    icon_in_selection=-1;
   }
-
-  // see if a new weapon has been selected other than the one
-  // we think is selected, if so redraw the status bar
-  if (currently_selected_weapon!=v->current_weapon)
-  {
-    currently_selected_weapon=v->current_weapon;
-    need_refresh();
-  }
-
-
 }
 
 

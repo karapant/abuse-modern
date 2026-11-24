@@ -52,7 +52,6 @@ class view
   int draw_solid;                         // -1 if don't draw solid
 
   int32_t *weapons;                          // [0..total_weapons-1]
-  int32_t *last_weapons;                     // last history of above array (for updating statbar)
   int32_t current_weapon;
 
 
@@ -80,7 +79,6 @@ class view
   view(game_object *Focus, view *Next, int number);
   ~view();
 
-  void draw_character_damage();           // draws the characters 'status' on the viewer
 
   int32_t x_center();                        // center of attention
   int32_t y_center();
@@ -103,7 +101,6 @@ class view
   void note_downkey();
   int handle_event(event &ev);
   void update_scroll();
-  void draw_hp();
   void draw_ammo();
   void draw_logo();
   void resize_view(int32_t Cx1, int32_t Cy1, int32_t Cx2, int32_t Cy2);

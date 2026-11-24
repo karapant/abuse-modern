@@ -46,7 +46,6 @@
 #include "loadgame.h"
 #include "scroller.h"
 #include "netcfg.h"
-#include "sbar.h"
 #include "view.h"
 
 #if !defined __CELLOS_LV2__
@@ -852,7 +851,6 @@ static void text_enhancements()
             text_notice("SAVE FAILED", "Could not save enhancement setting.");
         } else if (setting == Setting::ModernHud) {
             recalc_local_view_space();
-            sbar.need_refresh();
         }
     }
 }

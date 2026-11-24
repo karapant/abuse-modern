@@ -17,7 +17,6 @@
 #include "level.h"
 #include "ui/textmenu.h"
 #include "ui/save_slots.h"
-#include "ui/checkpoint_marker.h"
 #include "sdlport/controls.h"
 #include "sdlport/preferences.h"
 #include "clisp.h"
@@ -75,6 +74,42 @@ static void check_hud()
     sbar.bounds(left, top, right, bottom);
     require(right > left && top >= 0 && bottom == yres && abs(left + right - xres) <= 1,
             "weapon bar, health and ammo share bottom-center screen anchor");
+}
+
+static void check_hud_recovers(view *v)
+{
+    int left, top, right, bottom;
+    sbar.bounds(left, top, right, bottom);
+    const auto pixels = [&] {
+        std::vector<uint8_t> result;
+        for (int y = top; y < bottom; ++y) {
+            const auto *row = screen->scan_line(y);
+            result.insert(result.end(), row + left, row + right);
+        }
+        return result;
+    };
+    the_game->draw(0);
+    const auto expected = pixels();
+    const int viewport_bottom = v->cy2;
+    v->cy2 = bottom - 1; // Force a world redraw over the weapon bar.
+    the_game->update_screen();
+    const bool survived_world_redraw = pixels() == expected;
+    v->cy2 = viewport_bottom;
+    screen->bar(left, top, right - 1, bottom - 1, pal->find_closest(0, 0, 0));
+    int saved_left, saved_top, saved_right, saved_bottom;
+    screen->GetClip(saved_left, saved_top, saved_right, saved_bottom);
+    screen->SetClip(0, 0, screen->Size().x, top);
+    the_game->update_screen();
+    int clip_left, clip_top, clip_right, clip_bottom;
+    screen->GetClip(clip_left, clip_top, clip_right, clip_bottom);
+    screen->SetClip(saved_left, saved_top, saved_right, saved_bottom);
+    require(survived_world_redraw, "world redraw restores the complete HUD without inventory changes");
+    require(pixels() == expected, "framebuffer loss restores the complete HUD without inventory changes");
+    if (clip_left || clip_top || clip_right != screen->Size().x || clip_bottom != top)
+        fprintf(stderr, "HUD clip (%d,%d)-(%d,%d) should be (0,0)-(%d,%d)\n",
+                clip_left, clip_top, clip_right, clip_bottom, screen->Size().x, top);
+    require(clip_left == 0 && clip_top == 0 && clip_right == screen->Size().x && clip_bottom == top,
+            "HUD redraw preserves the world clip");
 }
 static void check_explosion_effect()
 {
@@ -137,10 +172,91 @@ static void check_environment_lights()
     require(test.Pixel(vec2i(105, 45)) == gray && test.Pixel(vec2i(35, 83)) == gray,
             "fixture color respects direction and radius");
     require(test.Pixel(vec2i(40, 55)) == gray, "solid room lighting preserves color");
+    test.clear(gray);
+    enhanced_light_screen(&test, 20000, 20000, unchanged.data(), 63, *pal, current_level->tick_counter());
+    require(test.Pixel(vec2i(35, 50)) != gray && test.Pixel(vec2i(105, 50)) != gray &&
+            test.Pixel(vec2i(35, 60)) == gray, "fixture halos surround their source without lifting the room");
     delete_light(brightness);
     delete_light(directional);
     delete_light(round);
 }
+static void check_foreground_contrast()
+{
+    image test(vec2i(24, 20), nullptr, 2);
+    image surfaces(test.Size(), nullptr, 2);
+    const int gray = pal->find_closest(108, 108, 108);
+    const int black = pal->find_closest(0, 0, 0);
+    test.clear(gray);
+    test.scan_line(6)[9] = black;
+    surfaces.clear(BackgroundReflection);
+    surfaces.bar(5, 6, 16, 14, WallReflection);
+    test.SetClip(6, 4, 18, 16);
+    enhance_foreground_contrast(test, surfaces, *pal);
+    require(pal->red(test.Pixel(vec2i(8, 6))) > pal->red(test.Pixel(vec2i(8, 7))) &&
+            pal->red(test.Pixel(vec2i(8, 7))) >= pal->red(gray) && test.Pixel(vec2i(9, 6)) == black &&
+            test.Pixel(vec2i(8, 5)) == gray && test.Pixel(vec2i(5, 6)) == gray,
+            "foreground contrast favors edges and preserves backgrounds, black pixels and the clip");
+
+    const auto outline_path = root / "ledge-outline.bin";
+    const char points[] = {5, 0, 0, 11, 0, 11, 8, 0, 8, 0, 0};
+    std::ofstream(outline_path, std::ios::binary).write(points, sizeof(points));
+    jFILE outline(outline_path.c_str(), "rb");
+    require(!outline.open_failure(), "open the test tile outline");
+    boundary floor(&outline, "test ledge");
+    surfaces.bar(14, 5, 14, 5, WallReflection);
+    surfaces.bar(7, 5, 11, 5, DecorativeReflection);
+    test.clear(gray);
+    enhance_foreground_contrast(test, surfaces, *pal);
+    const auto decorative_luma = pal->red(test.Pixel(vec2i(8, 5)));
+    mark_walkable_edges(surfaces, floor, vec2i(5, 6), vec2i(12, 9));
+    require(surfaces.Pixel(vec2i(8, 6)) == WalkableReflection &&
+            surfaces.Pixel(vec2i(14, 6)) == WallReflection &&
+            surfaces.Pixel(vec2i(8, 14)) == WallReflection,
+            "only exposed landing edges are marked");
+
+    test.clear(gray);
+    test.scan_line(6)[9] = black;
+    enhance_foreground_contrast(test, surfaces, *pal);
+    require(pal->red(test.Pixel(vec2i(8, 6))) > pal->red(test.Pixel(vec2i(16, 7))) &&
+            pal->red(test.Pixel(vec2i(8, 5))) < decorative_luma &&
+            test.Pixel(vec2i(9, 6)) == black && test.Pixel(vec2i(17, 5)) == gray &&
+            test.Pixel(vec2i(5, 5)) == gray,
+            "the ledge highlight and backdrop shading stay local and respect the clip");
+}
+static void check_lava_lighting()
+{
+    image test(vec2i(72, 56), nullptr, 2);
+    image surfaces(test.Size(), nullptr, 2);
+    const int gray = pal->find_closest(108, 108, 108);
+    const int black = pal->find_closest(0, 0, 0);
+    const LavaSurface strip{20, 43, 36, 0};
+    surfaces.clear(BackgroundReflection);
+    surfaces.bar(16, 29, 26, 37, WallReflection);
+    test.SetClip(4, 4, 68, 52);
+    const auto render = [&](const std::vector<LavaSurface> &lava, bool embers) {
+        test.clear(gray);
+        test.scan_line(34)[32] = black;
+        draw_lava_lighting(test, surfaces, *pal, lava, 8, embers);
+    };
+    render({strip}, false);
+    const int bank = test.Pixel(vec2i(23, 34));
+    const int backdrop = test.Pixel(vec2i(37, 34));
+    require(pal->red(bank) > pal->red(backdrop) && pal->red(backdrop) > pal->red(gray) &&
+            test.Pixel(vec2i(32, 34)) == black && test.Pixel(vec2i(36, 12)) == gray,
+            "lava warms nearby terrain more than the background and preserves the surrounding dark");
+    render({strip, strip}, false);
+    require(test.Pixel(vec2i(23, 34)) == bank && test.Pixel(vec2i(37, 34)) == backdrop,
+            "overlapping lava sprites don't stack their reflections");
+    const vec2i spark(29, 27);
+    const int empty = test.Pixel(spark);
+    render({strip}, true);
+    const int ember = test.Pixel(spark);
+    require(ember != empty && pal->red(ember) > pal->green(ember), "lava emits a warm ember");
+    surfaces.bar(29, 30, 29, 30, WallReflection);
+    render({strip}, true);
+    require(test.Pixel(spark) == empty, "embers stay below solid ledges");
+}
+
 static void check_projectile_lights()
 {
     const auto create_projectile = [](const char *name) {
@@ -180,6 +296,10 @@ static void check_projectile_lights()
     require(test.Pixel(vec2i(60, 64)) == gray && test.Pixel(vec2i(62, 70)) == black &&
             test.Pixel(vec2i(60, 96)) == gray,
             "open space and black pixels stay dark and the light fades away from the beam");
+    reflect_projectile_lights(test, surfaces, 20000, 20000, *pal, true);
+    require(pal->red(test.Pixel(vec2i(60, 65))) > pal->red(gray) &&
+            test.Pixel(vec2i(60, 68)) == gray,
+            "the optional glow hugs the projectile independently of surface reflections");
     clear_projectile_lights();
     delete laser;
 
@@ -259,7 +379,7 @@ static void invoke_save(const char *expression)
     LObject::Compile(expression)->Eval();
 }
 
-static void check_checkpoint_marker(view *v)
+static void check_checkpoint_lighting(view *v)
 {
     int type = 0;
     while (type < total_objects && strcmp(object_names[type], "RESTART_POSITION")) ++type;
@@ -268,27 +388,36 @@ static void check_checkpoint_marker(view *v)
     current_level->add_object(console);
     current_level->unactivate_all();
     current_level->add_drawables(v->xoff(), v->yoff(), v->xoff() + xres, v->yoff() + yres);
-    const int left = v->cx1 + console->x - v->xoff() - checkpoint_marker_size / 2;
-    const int top = std::max(v->cy1, v->cy1 + console->y - v->yoff() -
-                                   console->picture()->Size().y - checkpoint_marker_size - 2);
-    require(left >= v->cx1 && left + checkpoint_marker_size <= v->cx2 &&
-            top + checkpoint_marker_size <= v->cy2, "checkpoint fixture is inside the viewport");
-    the_game->draw(0);
-    const int amber = pal->find_closest(165, 108, 36);
-    const auto count_amber = [&] {
-        int pixels = 0;
-        for (int y = top; y < top + checkpoint_marker_size; ++y)
-            for (int x = left; x < left + checkpoint_marker_size; ++x)
-                if (screen->Pixel(vec2i(x, y)) == amber) ++pixels;
-        return pixels;
+
+    int32_t left, top, right, bottom;
+    console->picture_space(left, top, right, bottom);
+    const int width = right - left + 1, height = bottom - top + 1;
+    left += v->cx1 - v->xoff();
+    top += v->cy1 - v->yoff();
+    require(left >= v->cx1 && left + width <= v->cx2 &&
+            top >= v->cy1 && top + height <= v->cy2, "checkpoint fixture is inside the viewport");
+    const auto brightness = [&](int distance, bool enabled, const char *capture) {
+        v->focus->x = console->x - distance;
+        game_settings.checkpoint_feedback = enabled;
+        the_game->draw(0);
+        int total = 0;
+        for (int y = top + height / 8; y < top + height / 2; ++y)
+            for (int x = left + width / 4; x < left + 3 * width / 4; ++x)
+                total += pal->green(screen->Pixel(vec2i(x, y)));
+        if (wide_view && capture) snapshot(capture);
+        return total;
     };
-    const int marked = count_amber();
-    snapshot("checkpoint-marker.bmp");
-    game_settings.checkpoint_feedback = 0;
-    the_game->draw(0);
-    require(marked > 15 && count_amber() < marked, "disabling checkpoint feedback hides the in-world badge");
-    game_settings.checkpoint_feedback = 1;
+
+    const int player_x = v->focus->x;
+    const int idle = brightness(160, true, "checkpoint-idle.bmp");
+    const int approaching = brightness(103, true, "checkpoint-approaching.bmp");
+    const int nearby = brightness(56, true, "checkpoint-nearby.bmp");
+    const int disabled = brightness(56, false, nullptr);
+    const int leaving = brightness(160, true, nullptr);
+    v->focus->x = player_x;
     current_level->delete_object(console);
+    require(idle < approaching && approaching < nearby, "the monitor brightens gradually on approach");
+    require(disabled == idle && leaving == idle, "the console returns to its idle appearance");
 }
 extern "C" void __real__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextMenu *, image &, JCFont &, palette &, const char *, const char *, const char *);
 extern "C" void __wrap__ZN8TextMenu4drawER5imageR6JCFontR7palettePKcS7_S7_(TextMenu *menu, image &target, JCFont &font, palette &palette, const char *title, const char *section, const char *hint)
@@ -693,6 +822,7 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
             require(abs(mx - xres / 2) <= 1 && abs(my - yres / 2) <= 1, "widescreen aiming maps to view center");
         }
         check_hud();
+        check_hud_recovers(v);
         if (wide_view) {
             std::vector<int> ammo;
             for (int i = 0; i < total_weapons; ++i) { ammo.push_back(v->weapons[i]); v->weapons[i] = 100 + i; }
@@ -702,6 +832,8 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         check_explosion_effect();
         check_projectile_lights();
         check_environment_lights();
+        check_foreground_contrast();
+        check_lava_lighting();
         check_wheel(v);
         int x, y, b1, b2, b3, b4;
         the_game->set_key_down('j', 1);
@@ -717,7 +849,7 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         SDL_SetJoystickVirtualAxis(virtual_pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
         SDL_UpdateJoysticks();
         v->focus->set_hp(73);
-        check_checkpoint_marker(v);
+        check_checkpoint_lighting(v);
         invoke_save("(save_game \"save0015.spe\")");
         require(save_notices == 1, "the checkpoint save command confirms a successful write");
         invoke_save("(save_game \"missing/checkpoint.spe\")");
@@ -739,6 +871,7 @@ extern "C" void __wrap__ZN4view9get_inputEv(view *v)
         require(v->focus->hp() == 73, "load dialog restores saved player health");
         require(v->cx2 < xres && v->cy2 < yres, "save loading adapts camera to current live resolution");
         check_hud();
+        check_hud_recovers(v);
         invoke_save("(save_game \"silent-checkpoint.spe\")");
         require(std::filesystem::exists(root / "silent-checkpoint.spe") && save_notices == 1,
                 "switching checkpoint feedback off suppresses the notice without preventing saving");

@@ -12,6 +12,8 @@
 #ifndef LIGHT_HPP
 #define LIGHT_HPP
 
+#include <vector>
+
 #include "image.h"
 #include "palette.h"
 #include "configuration.h"
@@ -77,10 +79,21 @@ int calc_light_value(int32_t x, int32_t y, light_patch *which);
 enum class ProjectileGlow { Laser, Plasma, Saber, Rocket };
 void clear_projectile_lights();
 bool has_projectile_lights();
-enum ProjectileSurface : uint8_t { NoReflection, BackgroundReflection, WallReflection };
-void reflect_projectile_lights(image &target, image &surfaces, int world_x, int world_y, palette &colors);
+enum ProjectileSurface : uint8_t {
+    NoReflection, BackgroundReflection, WallReflection, WalkableReflection, DecorativeReflection
+};
+class boundary;
+void mark_walkable_edges(image &surfaces, const boundary &shape, vec2i origin, vec2i size);
+void enhance_foreground_contrast(image &target, image &surfaces, palette &colors);
+void reflect_projectile_lights(image &target, image &surfaces, int world_x, int world_y, palette &colors,
+                               bool draw_halo = false);
+struct LavaSurface { int left, right, y; uint32_t seed; };
+void draw_lava_lighting(image &target, image &surfaces, palette &colors,
+                        const std::vector<LavaSurface> &lava, uint32_t tick, bool embers);
 void add_projectile_light(ProjectileGlow glow, int x1, int y1, int x2, int y2);
 void add_explosion_effect(int x, int y, int radius, uint32_t tick);
+void draw_turret_charge(image &target, palette &colors, vec2i muzzle, int charge);
+void draw_save_console_glow(image &target, palette &colors, vec2i position, vec2i size, float intensity);
 void enhanced_light_screen(image *target, int world_x, int world_y, uint8_t *lookup,
                            int ambient, palette &colors, uint32_t tick);
 void light_screen(image *sc, int32_t screenx, int32_t screeny, uint8_t *light_lookup, uint16_t ambient);
