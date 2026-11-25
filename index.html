@@ -33,9 +33,9 @@
       <h2 id="feature-title">What’s new</h2>
       <figure class="comparison">
         <a href="screenshots/enhancements-comparison.png">
-          <img src="screenshots/enhancements-comparison.png" width="1948" height="600" alt="The same corridor with enhancements off on the left and on on the right. The enhanced view shows a redesigned HUD, a gold save marker, a brighter projectile trail and blue light on nearby terrain.">
+          <img src="screenshots/enhancements-comparison.png" width="1948" height="600" alt="The same corridor with enhancements off on the left and on on the right. The enhanced view shows a redesigned HUD, a brighter projectile trail and blue light on nearby terrain.">
         </a>
-        <figcaption>The same corridor with enhancements off and on. Open the image for a closer look.</figcaption>
+        <figcaption>The same corridor with enhancements off and on in an earlier build.</figcaption>
       </figure>
       <div class="features">
         <article>
@@ -44,7 +44,7 @@
         </article>
         <article>
           <h3>Widescreen and smoother motion</h3>
-          <p>Switch to a 640×360 view to see more of the level. The camera and objects interpolate at up to 60 frames per second. An optional pixel filter softens jagged edges.</p>
+          <p>Switch to a 640×360 view to see more of the level. The camera and objects interpolate at up to 60 frames per second, with an optional smooth pixel filter.</p>
         </article>
         <article>
           <h3>Modern HUD</h3>
@@ -53,12 +53,64 @@
         </article>
         <article>
           <h3>Checkpoint feedback</h3>
-          <div class="checkpoint">
-            <img src="screenshots/checkpoint-marker.png" width="1254" height="1254" loading="lazy" alt="Gold floppy-disk checkpoint marker.">
-            <p>A marker appears near save consoles, and the game confirms when your progress is saved.</p>
-          </div>
+          <p>Save consoles light up as you approach, and the game confirms when your progress is saved.</p>
+          <a href="screenshots/checkpoint-glow.png">
+            <img src="screenshots/checkpoint-glow.png" width="864" height="498" loading="lazy" alt="The save console gradually lights up on approach and dims when the player moves away.">
+          </a>
+        </article>
+        <article>
+          <h3>Combat feedback</h3>
+          <p>Landing shots flashes a crisp hit-marker at your reticle, damaged enemies flash bright and show a compact health bar, and a subtle crimson edge vignette signals incoming hits or critical health.</p>
+        </article>
+        <article>
+          <h3>Smart crosshair</h3>
+          <p>A responsive reticle pulses as you fire, highlights when aimed over a target, and displays a subtle indicator when ammo runs low or empty.</p>
+        </article>
+        <article>
+          <h3>Quick weapon switching</h3>
+          <p>Jump directly to any weapon with <strong>1–8</strong> or press <strong>Q</strong> to toggle back to your previous weapon mid-fight, with a brief weapon and ammo badge.</p>
+        </article>
+        <article>
+          <h3>Directional sound cues</h3>
+          <p>Off-screen doors, lifts, and enemy alerts show subtle edge indicators so you can track nearby threats and level events.</p>
         </article>
       </div>
+        <section class="menu-comparison" aria-labelledby="combat-title">
+          <h3 id="combat-title">Combat feedback &amp; smart crosshair before and after</h3>
+          <p>Hit-markers, enemy hit-flashes, target health bars, crimson damage vignettes, smart crosshair targeting, and weapon switch badges all toggle under Settings → Enhancements.</p>
+          <div class="menu-screenshots">
+            <figure class="comparison">
+              <a href="screenshots/combat-before.png">
+                <img src="screenshots/combat-before.png" width="640" height="360" loading="lazy" alt="Classic combat without hit-markers, target health bar, or damage vignette.">
+              </a>
+              <figcaption>Before · Enhancements off</figcaption>
+            </figure>
+            <figure class="comparison">
+              <a href="screenshots/combat-after.png">
+                <img src="screenshots/combat-after.png" width="640" height="360" loading="lazy" alt="Enhanced combat with enemy hit-flash, target health bar, hit-marker ticks, crimson damage vignette, smart crosshair, and weapon switch badge.">
+              </a>
+              <figcaption>After · Combat feedback &amp; smart crosshair</figcaption>
+            </figure>
+          </div>
+        </section>
+        <section class="menu-comparison" aria-labelledby="pixels-title">
+          <h3 id="pixels-title">Pixel filter before and after</h3>
+          <p>Keep razor-sharp pixels by default or enable Smooth pixels under Settings → Enhancements.</p>
+          <div class="menu-screenshots">
+            <figure class="comparison">
+              <a href="screenshots/pixels-crisp.png">
+                <img src="screenshots/pixels-crisp.png" width="640" height="360" loading="lazy" alt="Gameplay with crisp nearest-neighbor pixels.">
+              </a>
+              <figcaption>Before · Crisp pixels (default)</figcaption>
+            </figure>
+            <figure class="comparison">
+              <a href="screenshots/pixels-smooth.png">
+                <img src="screenshots/pixels-smooth.png" width="1280" height="720" loading="lazy" alt="Gameplay with the optional smooth pixel filter enabled.">
+              </a>
+              <figcaption>After · Smooth pixels</figcaption>
+            </figure>
+          </div>
+        </section>
         <section class="menu-comparison" aria-labelledby="menu-title">
           <h3 id="menu-title">Main menu before and after</h3>
           <p>Abuse Modern gives New Game, Load Game, Settings, and other actions readable labels.</p>
