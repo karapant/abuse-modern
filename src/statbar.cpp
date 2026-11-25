@@ -278,7 +278,7 @@ void status_bar::draw_update()
     } else if (changed_cursor)
     {
       if (!(dev&EDIT_MODE))
-        set_aim_cursor();
+        update_gameplay_cursor();
       else
         wm->set_mouse_shape(cache.img(c_normal)->copy(),1,1);
       changed_cursor=0;

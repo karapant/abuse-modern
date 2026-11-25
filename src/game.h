@@ -47,6 +47,7 @@
 /* Cleaned-up externs */
 extern WindowManager *wm;
 void set_aim_cursor();
+void update_gameplay_cursor();
 void set_aim_cursor_hotspot(int x, int y);
 void draw_title_screen();
 

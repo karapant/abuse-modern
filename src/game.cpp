@@ -94,10 +94,22 @@ void set_aim_cursor()
     wm->set_mouse_shape(outlined, aim_hotspot.x + 1, aim_hotspot.y + 1);
 }
 
+void update_gameplay_cursor()
+{
+    if (game_settings.smart_crosshair && the_game && the_game->state == RUN_STATE &&
+        !(dev & (EDIT_MODE | MAP_MODE))) {
+        auto *blank = new image(vec2i(1, 1));
+        blank->clear();
+        wm->set_mouse_shape(blank, 0, 0);
+        return;
+    }
+    set_aim_cursor();
+}
+
 void set_aim_cursor_hotspot(int x, int y)
 {
     aim_hotspot = vec2i(x, y);
-    if (screen && wm) set_aim_cursor();
+    if (screen && wm) update_gameplay_cursor();
 }
 int dev, shift_down = SHIFT_DOWN_DEFAULT, shift_right = SHIFT_RIGHT_DEFAULT;
 double sum_diffs = 1, total_diffs = 12;
@@ -283,9 +295,12 @@ void Game::note_player_fire(view &v)
     combat_feedback.fire_pulse_duration = duration;
 }
 
-static bool aim_over_target(const view &v)
+static bool aim_over_target(view &v)
 {
     if (!current_level || !v.focus) return false;
+    int32_t aim_x = v.pointer_x, aim_y = v.pointer_y;
+    if (!controller_state().aim && demo_man.current_state() == demo_manager::NORMAL && the_game)
+        the_game->mouse_to_game(last_demo_mx, last_demo_my, aim_x, aim_y, &v);
     for (auto *obj = current_level->first_active_object(); obj; obj = obj->next_active) {
         if (obj == v.focus || obj->controller() == &v) continue;
         if (!obj->hurtable() || !obj->alive() || obj->hp() <= 0) continue;
@@ -293,7 +308,7 @@ static bool aim_over_target(const view &v)
         if (!v.focus->can_hurt(obj)) continue;
         int32_t x1 = 0, y1 = 0, x2 = 0, y2 = 0;
         obj->picture_space(x1, y1, x2, y2);
-        if (v.pointer_x >= x1 && v.pointer_x <= x2 && v.pointer_y >= y1 && v.pointer_y <= y2)
+        if (aim_x >= x1 && aim_x <= x2 && aim_y >= y1 && aim_y <= y2)
             return true;
     }
     return false;
@@ -526,7 +541,12 @@ void Game::draw_gameplay_feedback(view &v)
     }
     if (show_crosshair || show_hit) {
         int32_t sx = 0, sy = 0;
-        game_to_mouse(v.pointer_x, v.pointer_y, &v, sx, sy);
+        if (!controller_state().aim && demo_man.current_state() == demo_manager::NORMAL) {
+            sx = last_demo_mx;
+            sy = last_demo_my;
+        } else {
+            game_to_mouse(v.pointer_x, v.pointer_y, &v, sx, sy);
+        }
         const uint8_t outline = pal->find_closest_non0(8, 8, 8);
         if (show_crosshair) {
             int gap = 3;
@@ -825,16 +845,7 @@ void Game::set_state(int new_state)
     pal->load();    // restore old palette
 
     if(playing_state(state) && !(dev & EDIT_MODE))
-    {
-        if (game_settings.smart_crosshair && state == RUN_STATE && !(dev & MAP_MODE))
-        {
-            auto *blank = new image(vec2i(1, 1));
-            blank->clear();
-            wm->set_mouse_shape(blank, 0, 0);
-        }
-        else
-            set_aim_cursor();
-    }
+        update_gameplay_cursor();
     else
         wm->set_mouse_shape(cache.img(c_normal)->copy(), 1, 1);
 

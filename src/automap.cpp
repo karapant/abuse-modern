@@ -419,6 +419,17 @@ void show_pause_map(level &map, game_object &player)
         const int switch_x = left + 48 + text.width("Save checkpoint") + 13;
         chart_switch(vec2i(switch_x, bottom + 9), blue, shadow);
         text.put(*screen, switch_x + 7, bottom + 3, "Switch", ink);
+        const int passage_x = switch_x + 7 + text.width("Switch") + 13;
+        if (passage_x + 8 + text.width("Passage") <= right) {
+            screen->bar(passage_x, bottom + 6, passage_x + 5, bottom + 11, pal->find_closest(50, 77, 96));
+            text.put(*screen, passage_x + 8, bottom + 3, "Passage", ink);
+            const int wall_x = passage_x + 8 + text.width("Passage") + 13;
+            if (wall_x + 8 + text.width("Wall") <= right) {
+                screen->bar(wall_x, bottom + 6, wall_x + 5, bottom + 11, pal->find_closest(19, 30, 40));
+                screen->rectangle(wall_x, bottom + 6, wall_x + 5, bottom + 11, pal->find_closest(123, 169, 186));
+                text.put(*screen, wall_x + 8, bottom + 3, "Wall", ink);
+            }
+        }
         const char *controls = controller_use_hint() ? "D-pad pan   LB/RB zoom   Confirm center   Back close" :
                                                      "Arrows pan   +/- zoom   Enter center   Tab back";
         text.put(*screen, left, bottom + 18, text.fit(controls, right - left), muted);
@@ -436,7 +447,7 @@ void show_pause_map(level &map, game_object &player)
                 platform_end_menu_text();
                 screen->SetClip(clip_left, clip_top, clip_right, clip_bottom);
                 the_game->reset_keymap();
-                if (playing_state(the_game->state)) set_aim_cursor();
+                if (playing_state(the_game->state)) update_gameplay_cursor();
                 return;
             case JK_UP: center.y -= 4; break;
             case JK_DOWN: center.y += 4; break;

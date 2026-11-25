@@ -920,9 +920,12 @@ static void check_combat_feedback(view *v)
         return false;
     };
 
+    extern int32_t last_demo_mx, last_demo_my;
     const int32_t saved_px = v->pointer_x, saved_py = v->pointer_y;
+    const int32_t saved_mx = last_demo_mx, saved_my = last_demo_my;
     v->pointer_x = v->focus->x + 36;
     v->pointer_y = v->focus->y - 16;
+    the_game->game_to_mouse(v->pointer_x, v->pointer_y, v, last_demo_mx, last_demo_my);
 
     game_settings.combat_feedback = 0;
     game_settings.smart_crosshair = 0;
@@ -957,6 +960,8 @@ static void check_combat_feedback(view *v)
     v->pointer_x = (ex1 + ex2) / 2;
     v->pointer_y = (ey1 + ey2) / 2;
     the_game->game_to_mouse(v->pointer_x, v->pointer_y, v, sx, sy);
+    last_demo_mx = sx;
+    last_demo_my = sy;
 
     game_settings.combat_feedback = 1;
     the_game->update_screen();
@@ -1008,6 +1013,8 @@ static void check_combat_feedback(view *v)
     }
     v->pointer_x = saved_px;
     v->pointer_y = saved_py;
+    last_demo_mx = saved_mx;
+    last_demo_my = saved_my;
     current_level->delete_object(enemy);
 
     // Clear recent damage vignette via level reload? No—just test low-health pulse directly after expiry or on fresh state:
