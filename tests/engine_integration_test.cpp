@@ -978,13 +978,36 @@ static void check_combat_feedback(view *v)
     require(differs(*screen, before_hit, bar_x - 1, bar_y - 1, bar_x + 26, bar_y + 3),
             "damaging an enemy draws a compact target health bar above it");
 
-    v->pointer_x = saved_px;
-    v->pointer_y = saved_py;
-
     v->focus->do_damage(5, enemy, v->focus->x, v->focus->y, 0, 0);
     the_game->update_screen();
     require(differs(*screen, baseline, v->cx1, v->cy1, v->cx1 + 4, v->cy1 + 4),
             "player damage draws a viewport edge vignette");
+    if (!wide_view) {
+        const int saved_hud = game_settings.modern_hud;
+        const int saved_light = game_settings.enhanced_lighting;
+        const int saved_proj = game_settings.enhanced_projectiles;
+        game_settings.combat_feedback = 0;
+        game_settings.smart_crosshair = 0;
+        game_settings.modern_hud = 0;
+        game_settings.enhanced_lighting = 0;
+        game_settings.enhanced_projectiles = 0;
+        the_game->update_screen();
+        snapshot("combat-before.bmp");
+        game_settings.combat_feedback = 1;
+        game_settings.smart_crosshair = 1;
+        game_settings.modern_hud = 1;
+        game_settings.enhanced_lighting = 1;
+        game_settings.enhanced_projectiles = 1;
+        the_game->note_player_fire(*v);
+        if (total_weapons > 1) the_game->note_weapon_switch(*v, 1);
+        the_game->update_screen();
+        snapshot("combat-after.bmp");
+        game_settings.modern_hud = saved_hud;
+        game_settings.enhanced_lighting = saved_light;
+        game_settings.enhanced_projectiles = saved_proj;
+    }
+    v->pointer_x = saved_px;
+    v->pointer_y = saved_py;
     current_level->delete_object(enemy);
 
     // Clear recent damage vignette via level reload? No—just test low-health pulse directly after expiry or on fresh state:

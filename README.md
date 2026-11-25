@@ -28,9 +28,21 @@ The same scene with enhancements off (left) and on (right), showing the redesign
 
 ![Gameplay comparison with enhancements off on the left and on on the right](resources/enhancements-comparison.png)
 
+### Combat feedback, smart crosshair & weapon swap
+
+| Before · Classic feedback | After · Combat feedback & smart crosshair |
+| --- | --- |
+| ![Classic combat without hit-markers, target health bar, or damage vignette](resources/combat-before.png) | ![Enhanced combat with enemy hit-flash, target health bar, hit-marker ticks, crimson damage vignette, smart crosshair, and weapon switch badge](resources/combat-after.png) |
+
+### Pixel filter
+
+| Crisp pixels (default) | Smooth pixels (optional) |
+| --- | --- |
+| ![Gameplay with crisp nearest-neighbor pixels](resources/pixels-crisp.png) | ![Gameplay with the optional smooth pixel filter enabled](resources/pixels-smooth.png) |
+
 Save consoles now light up as you approach. [See the checkpoint glow](site/screenshots/checkpoint-glow.png).
 
-Toggle the graphics and combat upgrades under **Settings → Enhancements**. Abuse Modern also adds smoother camera and object motion, an optional pixel filter, **Combat feedback** (reticle hit-markers, enemy hit-flashes, target health bars, and a damage/low-health edge vignette), and a **Smart crosshair** (fire-pulse reticle, target-hover highlight, and low/empty ammo cues).
+Toggle all upgrades under **Settings → Enhancements**: **Modern HUD**, **Enhanced Lighting**, **Checkpoint Feedback**, **Smooth pixels**, **Enhanced projectiles**, **Directional sound cues**, **Combat feedback** (reticle hit-markers, enemy hit-flashes, target health bars, and a damage/low-health edge vignette), and **Smart crosshair** (fire-pulse reticle, target-hover highlight, and low/empty ammo cues). Abuse Modern also adds smoother 60fps camera/object motion and **1–8** / **Q** quick weapon switching.
 
 ## Build from source
 
